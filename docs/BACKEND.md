@@ -1,17 +1,16 @@
-# Anivio — Database Architecture & Schema Specification
+# Anivio — Database Architecture, Server Actions & API Contracts
 
-> **Definitive Single Source of Truth for Relational Persistence & DDL**  
+> **Single Source of Truth (SSOT) for Relational Persistence, DDL Schemas, Server Actions & External Adapters**  
 > Status: **LOCKED BASELINE (Version 1.0)**  
 > Last Updated: 12 November 2026
 
-This document specifies the PostgreSQL relational architecture, entity-relationship models, exact table schemas, data types, index strategies, cascading behaviors, and procedural SQL functions for the Anivio Anime Community Platform.
+This document is the authoritative backend specification for the Anivio Anime Community Platform. It defines the PostgreSQL 16+ relational schema, entity-relationship models, DDL statements, stored procedural functions, Server Actions, Route Handlers, external metadata adapter contracts, and the caching matrix.
 
 ---
 
-## 1. Database Overview & Extensions
+## 1. Database Architecture & Extensions
 
-Anivio utilizes **PostgreSQL 16+ hosted on Neon**. To ensure optimal query performance and domain-level integrity, the database relies on three native PostgreSQL extensions:
-
+Anivio is powered by **PostgreSQL 16+ on Neon**, leveraging three native extensions:
 ```sql
 -- Migration 0001_extensions.sql
 CREATE EXTENSION IF NOT EXISTS ltree;      -- Hierarchical materialized paths for comment trees
@@ -19,16 +18,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;     -- Trigram indexing for fuzzy title 
 CREATE EXTENSION IF NOT EXISTS citext;      -- Case-insensitive text for usernames and community slugs
 ```
 
-### Conventions & Rules
-- **Identifiers**: All table and column names use `snake_case`. Table names are plural (e.g., `posts`, `communities`).
-- **Primary Keys**: Standard tables use `uuid PRIMARY KEY DEFAULT gen_random_uuid()`. Natural junction tables use composite primary keys (e.g., `(user_id, post_id)`).
-- **Timestamps**: All timestamps use `timestamptz DEFAULT now()`. Dates are never stored as strings.
-- **Enums**: Implemented as standard `text` columns with explicit `CHECK` constraints (e.g., `CHECK (role IN ('member', 'moderator', 'owner'))`). This avoids PostgreSQL enum migration transaction locking.
-- **Soft Deletion**: Applied strictly to user-generated discussion rows (`posts`, `comments`) via `is_deleted boolean DEFAULT false` to preserve descendant comment branches.
-
----
-
-## 2. Entity-Relationship Diagram (ERD)
+### Relational Entity-Relationship Diagram (ERD)
 
 ```mermaid
 erDiagram
@@ -134,11 +124,9 @@ erDiagram
 
 ---
 
-## 3. Table Definitions & Constraints
+## 2. Table Schemas & Constraints (DDL)
 
-### 3.1 Identity & Authentication Tables
-
-#### `users`
+### 2.1 Identity & Authentication
 ```sql
 CREATE TABLE users (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -152,10 +140,7 @@ CREATE TABLE users (
   created_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT users_username_length CHECK (char_length(username::text) BETWEEN 3 AND 24)
 );
-```
 
-#### `accounts` (Auth.js)
-```sql
 CREATE TABLE accounts (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -172,10 +157,7 @@ CREATE TABLE accounts (
   CONSTRAINT accounts_provider_unique UNIQUE (provider, provider_account_id)
 );
 CREATE INDEX accounts_user_id_idx ON accounts(user_id);
-```
 
-#### `sessions` (Auth.js)
-```sql
 CREATE TABLE sessions (
   session_token text PRIMARY KEY,
   user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -184,11 +166,7 @@ CREATE TABLE sessions (
 CREATE INDEX sessions_user_id_idx ON sessions(user_id);
 ```
 
----
-
-### 3.2 Community & Content Tables
-
-#### `communities`
+### 2.2 Communities & Posts
 ```sql
 CREATE TABLE communities (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -201,10 +179,7 @@ CREATE TABLE communities (
   CONSTRAINT communities_slug_format CHECK (slug ~ '^[a-z0-9-]+$' AND char_length(slug::text) BETWEEN 3 AND 24)
 );
 CREATE INDEX communities_member_count_idx ON communities(member_count DESC);
-```
 
-#### `community_members`
-```sql
 CREATE TABLE community_members (
   community_id uuid NOT NULL REFERENCES communities(id) ON DELETE CASCADE,
   user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -213,10 +188,7 @@ CREATE TABLE community_members (
   PRIMARY KEY (community_id, user_id)
 );
 CREATE INDEX community_members_user_id_idx ON community_members(user_id);
-```
 
-#### `posts`
-```sql
 CREATE TABLE posts (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   community_id uuid NOT NULL REFERENCES communities(id) ON DELETE CASCADE,
@@ -234,7 +206,7 @@ CREATE TABLE posts (
   edited_at timestamptz
 );
 
--- Search Generated Column & Indexes
+-- Full-Text Search Generated Vector & Indexes
 ALTER TABLE posts ADD COLUMN search tsvector
   GENERATED ALWAYS AS (
     setweight(to_tsvector('english', coalesce(title, '')), 'A') ||
@@ -246,10 +218,7 @@ CREATE INDEX posts_title_trgm ON posts USING gin (title gin_trgm_ops);
 CREATE INDEX posts_community_hot_idx ON posts (community_id, hot_rank DESC) WHERE status = 'published';
 CREATE INDEX posts_community_new_idx ON posts (community_id, created_at DESC) WHERE status = 'published';
 CREATE INDEX posts_author_idx ON posts (author_id, created_at DESC);
-```
 
-#### `post_tags`
-```sql
 CREATE TABLE post_tags (
   post_id uuid NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
   entity_type text NOT NULL CHECK (entity_type IN ('anime', 'character', 'episode')),
@@ -258,10 +227,7 @@ CREATE TABLE post_tags (
   PRIMARY KEY (post_id, entity_type, entity_id)
 );
 CREATE INDEX post_tags_entity_idx ON post_tags(entity_type, entity_id);
-```
 
-#### `post_media`
-```sql
 CREATE TABLE post_media (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   post_id uuid NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
@@ -276,11 +242,7 @@ CREATE TABLE post_media (
 CREATE INDEX post_media_post_id_idx ON post_media(post_id);
 ```
 
----
-
-### 3.3 Comments & Voting Tables
-
-#### `comments`
+### 2.3 Comments, Hierarchy & Voting
 ```sql
 CREATE SEQUENCE comment_path_seq;
 
@@ -305,10 +267,7 @@ CREATE TABLE comments (
 CREATE INDEX comments_path_gist ON comments USING gist (path);
 CREATE INDEX comments_post_path ON comments (post_id, path);
 CREATE INDEX comments_post_rank ON comments (post_id, wilson_lower DESC);
-```
 
-#### `post_votes` & `comment_votes`
-```sql
 CREATE TABLE post_votes (
   user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   post_id uuid NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
@@ -326,11 +285,7 @@ CREATE TABLE comment_votes (
 );
 ```
 
----
-
-### 3.4 Tracking, Operations & Moderation Tables
-
-#### `watchlists`
+### 2.4 Watchlists, Episodes & Snapshots
 ```sql
 CREATE TABLE watchlists (
   user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -342,10 +297,7 @@ CREATE TABLE watchlists (
   PRIMARY KEY (user_id, mal_id)
 );
 CREATE INDEX watchlists_user_status_idx ON watchlists(user_id, status);
-```
 
-#### `episodes` & `episode_threads`
-```sql
 CREATE TABLE episodes (
   mal_id integer NOT NULL,
   episode_number integer NOT NULL,
@@ -362,10 +314,7 @@ CREATE TABLE episode_threads (
   created_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (mal_id, episode_number)
 );
-```
 
-#### `provider_snapshots`
-```sql
 CREATE TABLE provider_snapshots (
   entity_type text NOT NULL CHECK (entity_type IN ('anime', 'character', 'episode', 'season')),
   entity_id integer NOT NULL,
@@ -376,7 +325,7 @@ CREATE TABLE provider_snapshots (
 );
 ```
 
-#### `reports`, `moderation_actions` & `audit_log`
+### 2.5 Moderation, Audit & Background Jobs
 ```sql
 CREATE TABLE reports (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -412,10 +361,7 @@ CREATE TABLE audit_log (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX audit_log_actor_idx ON audit_log(actor_id, created_at);
-```
 
-#### `jobs`
-```sql
 CREATE TABLE jobs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   kind text NOT NULL,
@@ -430,11 +376,10 @@ CREATE INDEX jobs_queue_idx ON jobs(run_after) WHERE locked_at IS NULL;
 
 ---
 
-## 4. Critical DDL & Procedural SQL Functions
+## 3. Stored Functions & Procedural Logic
 
-### 4.1 Hierarchical Comment Insertion Function (`add_comment`)
-This stored function serializes insertions on a per-post basis using PostgreSQL transactional advisory locks, eliminating path collision races:
-
+### 3.1 Transactional Hierarchical Insertion (`add_comment`)
+Serializes insertions on a per-post basis using PostgreSQL advisory transaction locks, completely eliminating path insertion race conditions:
 ```sql
 CREATE OR REPLACE FUNCTION add_comment(
   p_post uuid,
@@ -449,7 +394,7 @@ DECLARE
   v_path ltree;
   v_id uuid;
 BEGIN
-  -- Acquire transaction-scoped advisory lock on post_id hash to prevent race conditions
+  -- Advisory lock scoped to transaction on post_id hash
   PERFORM pg_advisory_xact_lock(hashtext(p_post::text));
 
   IF p_parent IS NULL THEN
@@ -473,16 +418,13 @@ BEGIN
   VALUES (p_post, p_author, p_parent, v_path, nlevel(v_path), p_content, p_spoiler)
   RETURNING id INTO v_id;
 
-  -- Increment denormalized comment count on post
   UPDATE posts SET comment_count = comment_count + 1 WHERE id = p_post;
 
   RETURN v_id;
 END $$;
 ```
 
-### 4.2 Algorithmic Ranking Functions
-
-#### Wilson Score Lower Bound Function
+### 3.2 Wilson Score Lower Bound Function
 ```sql
 CREATE OR REPLACE FUNCTION wilson_lower(ups integer, downs integer)
 RETURNS double precision LANGUAGE sql IMMUTABLE AS $$
@@ -500,7 +442,7 @@ RETURNS double precision LANGUAGE sql IMMUTABLE AS $$
 $$;
 ```
 
-#### Hot Rank Time-Decay Function
+### 3.3 Hot Rank Time-Decay Function
 ```sql
 CREATE OR REPLACE FUNCTION hot_rank(score integer, created_at timestamptz)
 RETURNS double precision LANGUAGE sql IMMUTABLE AS $$
@@ -512,37 +454,89 @@ $$;
 
 ---
 
-## 5. Migration Execution Sequence
+## 4. Server Actions Specifications
 
-Migrations are numbered, immutable once applied in staging/production, and forward-only:
+All mutations in Anivio execute via Server Actions. Every action validates authorization and arguments via Zod, returning a typed discriminated union (`ActionResult<T>`):
 
-| Migration File | Contents & Responsibilities | Target Milestone |
-|---|---|---|
-| `0001_extensions.sql` | `ltree`, `pg_trgm`, `citext` extensions | Milestone 1 |
-| `0002_identity.sql` | `users`, `accounts`, `sessions` tables & constraints | Milestone 2 |
-| `0003_community.sql` | `communities`, `community_members` | Milestone 4 |
-| `0004_content.sql` | `posts`, `post_tags`, `post_media` | Milestone 4 |
-| `0005_comments.sql` | `comment_path_seq`, `comments`, `add_comment()`, ranking functions | Milestone 5 |
-| `0006_votes.sql` | `post_votes`, `comment_votes`, counters | Milestone 5 |
-| `0007_tracking.sql` | `watchlists`, `episodes`, `episode_threads`, `provider_snapshots` | Milestone 6 |
-| `0008_moderation.sql`| `reports`, `moderation_actions`, `audit_log` | Milestone 7 |
-| `0009_search.sql` | `posts.search` tsvector, GIN index, `jobs` queue | Milestone 8 |
-| `0010_hardening.sql` | Refined indexes, check constraints identified in load testing | Milestone 8 |
+| Action Name | Input Arguments | Authorization | Database Effects | Error Codes |
+|---|---|---|---|---|
+| `createPost` | `{ communityId: uuid, title: string, documentJson: JSON, linkedMalId?: number, isSpoiler: boolean, mediaIds: uuid[] }` | Signed in, community member, account >24h for links, not shadowbanned | Inserts `posts`, `post_tags`, links `post_media`. Enqueues search update & revalidates feed. | `RateLimited`, `NotMember`, `ValidationFailed`, `Unauthenticated` |
+| `updatePost` | `{ postId: uuid, title: string, documentJson: JSON, linkedMalId?: number, isSpoiler: boolean }` | Post author within 24 hours OR community moderator | Updates `posts.title`, `posts.content`, recomputes tags, sets `edited_at = now()`. | `Forbidden`, `Expired`, `ValidationFailed`, `NotFound` |
+| `createComment` | `{ postId: uuid, parentId?: uuid, content: string, isSpoiler: boolean }` | Signed in, post published, depth <= 8 | Calls `add_comment()`, increments `posts.comment_count`, enqueues score job and notification. | `RateLimited`, `DepthExceeded`, `ParentMissing`, `Unauthenticated` |
+| `vote` | `{ targetType: 'post' \| 'comment', targetId: uuid, value: 1 \| -1 }` | Signed in, voter is NOT author of target | Upserts row in `post_votes` or `comment_votes`. Enqueues `recomputeScore` job. | `Forbidden`, `TargetMissing`, `RateLimited`, `Unauthenticated` |
+| `createCommunity` | `{ slug: string, name: string, description: string }` | Signed in, account age >= 3 days, max 2/wk | Inserts `communities`, creates owner row in `community_members`, writes `audit_log`. | `SlugTaken`, `RateLimited`, `ValidationFailed`, `Unauthenticated` |
+| `joinCommunity` | `{ communityId: uuid }` | Signed in | Idempotent insert into `community_members`, increments `communities.member_count`. | `RateLimited`, `Unauthenticated`, `NotFound` |
+| `upsertWatchlistEntry` | `{ malId: number, status: 'watching' \| 'completed' \| 'dropped' \| 'planned', score?: number, episodesWatched?: number }` | Signed in, `malId` resolvable in metadata | Upserts row in `watchlists`. Validates `episodesWatched` <= total cached episodes. | `InvalidProgress`, `UnknownAnime`, `Unauthenticated` |
+| `reportTarget` | `{ targetType: 'post' \| 'comment', targetId: uuid, reason: string, note?: string }` | Signed in, reporter is NOT author of target | Inserts `reports`. If >= 3 unique valid reports, sets target `status = 'filtered'` and alerts mod. | `AlreadyReported`, `RateLimited`, `Unauthenticated` |
+| `resolveReport` | `{ reportId: uuid, decision: 'approve' \| 'remove' \| 'dismiss', reason: string }` | Community moderator OR Admin | Updates report state, modifies target status, writes immutable `moderation_actions` row. | `Forbidden`, `AlreadyResolved`, `Unauthenticated` |
+| `deleteAccount` | `{ confirmation: string }` | Active session owner | Anonymizes user row, deletes sessions/accounts, retains authored posts with deleted marker. | `ConfirmationMismatch`, `Unauthenticated` |
 
 ---
 
-## 6. Seed & Fixture Strategy
+## 5. Route Handlers & API Endpoints
 
-To guarantee honest interface testing during development, three idempotent seed scripts are maintained in `scripts/`:
+| Route Path | Method | Purpose | Cache Policy | Rate Limit |
+|---|---|---|---|---|
+| `/api/search/anime` | `GET` | Debounced anime search for navbar & editor combobox | 1 hour per query string in Redis | 30 requests / min per IP |
+| `/api/hover/anime/[id]` | `GET` | Lightweight payload for inline tag hover cards | 24 hours in Redis & edge | 120 requests / min per IP |
+| `/api/feed` | `GET` | Keyset-paginated post feed for infinite scroll | Dynamic (no cache for signed-in; 60s for anon) | 60 requests / min per IP |
+| `/api/comments` | `GET` | Subtree fetch for deep "continue this thread" branches | None (always live query) | 60 requests / min per IP |
+| `/api/upload/sign` | `POST` | Authorizes & returns presigned Cloudflare R2 upload URL | None (private, signed) | 10 uploads / hour per user |
+| `/api/health` | `GET` | Database, Redis, and Metadata provider availability probe | None | Unrestricted (monitoring only) |
+| `/api/cron/daily` | `POST` | Scheduled daily maintenance: season refresh, score sync, orphan sweep | None | Protected via `Authorization: Bearer <CRON_SECRET>` |
 
-1. **`seed-minimal.ts`**:
-   - 5 communities (`c/general`, `c/seasonal`, `c/recommendations`, `c/shonen`, `c/seinen`).
-   - 10 test users with realistic usernames.
-   - 20 posts with tagged anime entities and 50 comments.
-2. **`seed-realistic.ts`**:
-   - 15 communities, 100 users, 250 posts, and 2,500 nested comments up to 6 levels deep.
-   - Populates realistic vote distributions to verify Wilson Score ranking.
-3. **`seed-stress.ts`**:
-   - 1 community containing 10,000 posts.
-   - A single stress thread containing 1,000 comments nested to depth 8 to assert query execution time under 400ms at p95.
+---
 
+## 6. External Metadata Adapter Contract
+
+### 6.1 TypeScript Adapter Interface
+```typescript
+export type AnimeSummary = {
+  malId: number;
+  title: string;
+  titleEnglish: string | null;
+  images: { small: string; medium: string; large: string };
+  score: number | null;
+  episodes: number | null;
+  status: 'airing' | 'finished' | 'upcoming' | 'unknown';
+  genres: string[];
+  year: number | null;
+  synopsis: string | null;
+  isDegraded?: boolean;
+  snapshotAgeHours?: number;
+};
+
+export interface MetadataProvider {
+  name: string;
+  searchAnime(query: string, page: number): Promise<Page<AnimeSummary>>;
+  getSeason(season: string, year: number, page: number): Promise<Page<AnimeSummary>>;
+  getTop(page: number): Promise<Page<AnimeSummary>>;
+  getAnime(malId: number): Promise<AnimeSummary>;
+  getEpisodes(malId: number, page: number): Promise<Page<EpisodeSummary>>;
+  getCharacters(malId: number, page: number): Promise<Page<CharacterSummary>>;
+}
+```
+
+### 6.2 The Six Mandatory Adapter Wrapping Rules (LOCKED)
+1. **Timeout & Retries**: 5-second socket timeout; max 2 retries with exponential backoff and randomized jitter.
+2. **Rate Limit Handling**: Strictly honor upstream `Retry-After` headers on HTTP 429. Cache 404 responses negatively for 10 minutes.
+3. **Token Bucket Consumption**: Consume a Redis token before dispatching outbound requests; release token immediately if satisfied by local cache.
+4. **Single-Flight Mutex**: Enforce an in-memory/Redis mutex lock per entity key so that concurrent misses for the same anime generate exactly one upstream fetch.
+5. **Snapshot Persistence**: Automatically write an upsert row to `provider_snapshots` before returning. If outbound network fails, immediately serve the latest snapshot with `DegradedNotice`.
+6. **Error Isolation**: Never throw raw network or provider errors across the module boundary. Return a typed `Result<T, ProviderError>` object.
+
+---
+
+## 7. Caching & Revalidation Matrix
+
+| Data Layer | Cache Strategy | Duration | Invalidation Mechanism |
+|---|---|---|---|
+| Season & Top Lists | Next.js `'use cache'` | 24 Hours | Time-based; refreshed by daily cron |
+| Show Detail & Synopsis | Next.js Cache + `provider_snapshots` | 24 Hours | Time-based, or manual refresh when score shifts materially |
+| Anime Search Results | Upstash Redis | 1 Hour | Time-based (negative misses cached 5 minutes) |
+| Inline Tag Hover Payload | Route Handler + Redis | 24 Hours | Time-based |
+| Airing Episode Lists | PostgreSQL `episodes` table | 7 Days | Daily cron job (refreshing currently airing shows only) |
+| Post Body & Metadata | Next.js Server Component Cache | 60 Seconds | Tagged invalidation on post edit, removal, or report |
+| Comment Tree | Direct Database Query (GiST index) | **NEVER** | Always live query (<400ms server budget) |
+| User Profile | Framework Cache | 60 Seconds | Tagged invalidation on username or avatar update |
+| Watchlists & Settings | Direct Database Query (owner only) | **NEVER** | Personal user state must never be cached across users |

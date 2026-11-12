@@ -112,11 +112,11 @@ Screenshots will be added as the UI is implemented.
 > [!IMPORTANT]
 > The project is not yet initialized. Setup instructions will be added after Milestone 1 is complete.
 
-See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for full deployment and environment setup details.
+See [docs/OPERATIONS.md](docs/OPERATIONS.md) for full deployment and environment setup details.
 
 ## Environment Variables
 
-See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full variable reference.
+See [docs/OPERATIONS.md](docs/OPERATIONS.md) for the full variable reference.
 
 | Variable |
 |---|
@@ -140,7 +140,7 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full variable reference.
 
 ## Database
 
-See [docs/DATABASE.md](docs/DATABASE.md) for the full schema, migrations, and database architecture documentation.
+See [docs/BACKEND.md](docs/BACKEND.md) for the full schema, migrations, and database architecture documentation.
 
 ## Development Commands
 
@@ -149,32 +149,23 @@ See [docs/DATABASE.md](docs/DATABASE.md) for the full schema, migrations, and da
 
 ## Testing
 
-See [docs/TESTING.md](docs/TESTING.md) for the full test strategy, conventions, and instructions.
+See [docs/OPERATIONS.md](docs/OPERATIONS.md) for the full test strategy, conventions, and quality gates.
 
 ## Deployment
 
-See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for infrastructure, CI/CD, and deployment instructions.
+See [docs/OPERATIONS.md](docs/OPERATIONS.md) for infrastructure, CI/CD, and deployment instructions.
 
 ## Documentation
 
 | Document | Purpose |
 |---|---|
-| [docs/README.md](docs/README.md) | Documentation index and guide |
-| [docs/PRODUCT.md](docs/PRODUCT.md) | Product vision, audience, positioning |
-| [docs/SPEC.md](docs/SPEC.md) | Functional and non-functional specifications |
-| [docs/DESIGN.md](docs/DESIGN.md) | UI/UX design system and component specs |
-| [docs/WORKFLOW.md](docs/WORKFLOW.md) | User journeys and application workflows |
-| [docs/STRUCTURE.md](docs/STRUCTURE.md) | Repository and application architecture |
-| [docs/TECHSTACK.md](docs/TECHSTACK.md) | Technology stack decisions |
-| [docs/DATABASE.md](docs/DATABASE.md) | Database schema and architecture |
-| [docs/API.md](docs/API.md) | API contracts and integrations |
-| [docs/SECURITY.md](docs/SECURITY.md) | Security and moderation |
-| [docs/TESTING.md](docs/TESTING.md) | Quality assurance and test plan |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Infrastructure and deployment |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Development milestones and tasks |
-| [docs/DECISIONS.md](docs/DECISIONS.md) | Architecture decision records |
-| [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | Development standards and conventions |
-| [docs/CHANGELOG.md](docs/CHANGELOG.md) | Project change history |
+| [docs/README.md](docs/README.md) | Documentation index and navigation map |
+| [docs/PRODUCT_SPEC.md](docs/PRODUCT_SPEC.md) | Product vision, functional specs (`FR-001`–`FR-041`), and user interaction workflows |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Technology choices, directory structure, and Architecture Decision Records (ADRs) |
+| [docs/BACKEND.md](docs/BACKEND.md) | PostgreSQL schemas, `ltree` functions, Server Actions, and Metadata API contracts |
+| [docs/DESIGN.md](docs/DESIGN.md) | Design tokens, typography, 30 component specifications, and 10 page layouts |
+| [docs/OPERATIONS.md](docs/OPERATIONS.md) | Security controls, QA testing suite, hosting topology, environment variables, and CI/CD |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Milestones M0–M9 task board, engineering standards, and release changelog |
 
 ## Project Status
 
@@ -182,4 +173,4 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for infrastructure, CI/CD, and depl
 
 ## Contributing
 
-See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for development standards, branching conventions, and contribution guidelines.
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for development standards, branching conventions, and contribution guidelines.
