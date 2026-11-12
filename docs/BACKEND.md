@@ -540,3 +540,4 @@ export interface MetadataProvider {
 | Comment Tree | Direct Database Query (GiST index) | **NEVER** | Always live query (<400ms server budget) |
 | User Profile | Framework Cache | 60 Seconds | Tagged invalidation on username or avatar update |
 | Watchlists & Settings | Direct Database Query (owner only) | **NEVER** | Personal user state must never be cached across users |
+

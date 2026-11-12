@@ -254,3 +254,4 @@ During source analysis of the two initial planning documents, four critical cont
 | **OD-13** | Database Preview Branch Strategy| A) Shared staging DB<br>B) Neon branch per PR | **Option B (Neon branch per PR)**. Fully isolates schema migrations during preview deployments. | Milestone 1 |
 | **OD-14** | Repository Visibility | A) Private permanently<br>B) Public after launch | **Option B (Private during development; public post-launch)**. Serves as portfolio artifact once launched. | Milestone 9 |
 | **OD-15** | Ranking Tie-Breaker | A) Entity UUID<br>B) Creation timestamp | **Option B (Creation timestamp)**. Resolves ties deterministically without jumping positions. | Milestone 5 |
+

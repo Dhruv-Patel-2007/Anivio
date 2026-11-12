@@ -110,3 +110,4 @@ All notable changes to the Anivio project are documented here based on [Keep a C
 - Formally locked Tenrai API v1 + AniList fallback + local snapshots as metadata engine.
 - Formally locked comment nesting depth at 8 levels via PostgreSQL check constraint.
 - Formally locked three-tier caching model (`'use cache'`, Redis token bucket, PostgreSQL snapshots).
+

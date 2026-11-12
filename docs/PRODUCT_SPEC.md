@@ -305,3 +305,4 @@ The following items are strictly prohibited from Version 1 implementation:
 8. Native iOS / Android mobile applications.
 9. Localization/internationalization beyond English.
 10. Bulk scraping or complete offline mirroring of external anime databases.
+

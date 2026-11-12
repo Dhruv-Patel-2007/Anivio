@@ -164,3 +164,4 @@ Every pull request to `main` must pass automated quality gates:
 - **Point-in-Time Recovery (PITR)**: Neon automated 7-day continuous PITR.
 - **Weekly Logical Dump**: GitHub Actions executes a scheduled `pg_dump` every Sunday night, encrypted and archived to Cloudflare R2 with a 30-day retention policy.
 - **Spending Caps**: Hard billing alerts configured on Vercel ($20 spend cap), Neon (2 CU max), and Upstash (hard block at free limit).
+
