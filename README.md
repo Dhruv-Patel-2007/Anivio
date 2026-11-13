@@ -401,7 +401,7 @@ deployed as one Next.js application, while business logic is separated
 into explicit domain modules. This keeps deployment and development
 manageable while protecting boundaries between features.
 
-``` mermaid
+```mermaid
 flowchart TD
     User["Browser / Mobile Web"] --> Edge["Vercel Edge / CDN"]
     Edge --> Next["Next.js 16 App Router"]
