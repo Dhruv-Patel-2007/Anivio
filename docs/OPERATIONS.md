@@ -1,10 +1,11 @@
 # Anivio — Security, Testing, Infrastructure & Operations
 
 > **Single Source of Truth (SSOT) for Application Hardening, QA Test Suite, Deployment & CI/CD**  
-> Status: **LOCKED BASELINE (Version 1.0)**  
-> Last Updated: 12 November 2026
+> Status: **CONSOLIDATED BASELINE (Version 1.1)**  
+> Last Updated: 12 November 2026  
+> Document Alignment: Reconciled with `README.md` & `ARCHITECTURE.md` (Version 1.1 Consolidated Architecture Baseline)
 
-This document specifies the operational lifecycle of the Anivio Anime Community Platform. It defines security controls, role-based access models, automated testing layers, hosting architecture, environment configurations, CI/CD pipelines, and disaster recovery strategies.
+This document specifies the operational lifecycle of the Anivio Platform. It defines security controls, role-based access models, automated testing layers, hosting architecture, environment configurations, CI/CD pipelines, and disaster recovery strategies.
 
 ---
 
@@ -12,43 +13,57 @@ This document specifies the operational lifecycle of the Anivio Anime Community 
 
 ### 1.1 Authentication & Session Integrity
 - **OAuth 2.0 with PKCE**: Restricts authentication exclusively to Google and Discord via Auth.js v5. No password storage, salting, or reset flows exist on the platform.
-- **Database-Backed Sessions**: Session tokens are persisted in PostgreSQL `sessions`. Deleting a session row instantly terminates the active session on next request.
+- **Database-Backed Sessions**: Session tokens are persisted in PostgreSQL `sessions`. Deleting a session row instantly terminates the active session on the next request.
 - **Cookie Security**:
   - `HttpOnly`: Immune to theft via client-side JavaScript (`document.cookie`).
-  - `Secure`: Transmitted strictly over HTTPS.
+  - `Secure`: Transmitted strictly over HTTPS in production.
   - `SameSite=Lax`: Mitigates Cross-Site Request Forgery (CSRF).
 
 ### 1.2 Role-Based Access Control (RBAC) Matrix
 
 | Capability / Action | Anonymous Visitor | Standard User | Community Member | Community Moderator | Community Owner | Global Admin |
 |---|---|---|---|---|---|---|
-| View public feeds & anime data | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| View public feeds & catalog data | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Upvote / Downvote content | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Manage personal watchlist | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Manage personal library / tracking | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Follow / Unfollow users & Bookmark posts | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Reveal spoiler content (on-demand) | ✅ (Session) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Post within community | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
 | Comment within community | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Create a new community | ❌ | ✅ (Account >= 3d) | ✅ | ✅ | ✅ | ✅ |
+| **Create a new community (Launch)** | ❌ | ❌ | ❌ | ❌ | ❌ | **✅ (Admin-Only)** |
 | Edit post within 24 hours | ❌ | Author only | Author only | ✅ (In community) | ✅ (In community) | ✅ |
 | Remove / Filter community posts | ❌ | ❌ | ❌ | ✅ (In community) | ✅ (In community) | ✅ |
+| Pin discussions in community | ❌ | ❌ | ❌ | ✅ (In community) | ✅ (In community) | ✅ |
 | Access `/mod` queue | ❌ | ❌ | ❌ | ✅ (In community) | ✅ (In community) | ✅ |
-| Shadowban user account | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Shadowban / suspend user account | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Access `/mod/log` system audit | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 
-### 1.3 Injection & Content Defenses
-- **SQL Injection**: All database queries are parameterized through Drizzle ORM or typed PostgreSQL function parameters (`$1`, `$2`). Raw string concatenation is prohibited.
+> [!IMPORTANT]
+> **Community Creation Policy**: In accordance with the consolidated Version 1.1 launch strategy (`CR-05`, `OD-03`), community creation is platform-administrator provisioned during the initial launch to prevent spam, ghost communities, and moderator fragmentation. A transition to trusted-user creation (accounts >3 days old, rate-limited to 2/week) is planned for post-launch releases once anti-abuse telemetry is established.
+
+### 1.3 Content Defenses & Server-Side Spoiler Protection
+- **SQL Injection**: All database queries are parameterized through Drizzle ORM or typed PostgreSQL function parameters (`$1`, `$2`). Raw string concatenation is strictly prohibited.
 - **Cross-Site Scripting (XSS)**: Tiptap editor enforces an allowlist JSON schema. Raw HTML, `<script>`, and inline base64 images are stripped. Post content renders via React Server Components.
-- **Secure Image Uploads (Cloudflare R2)**: Direct presigned PUT uploads bypass application servers. Files are limited to 5MB and validated against `image/webp`, `image/jpeg`, and `image/png`. Images are served from an isolated origin (`media.anivio.app`).
+- **Server-Enforced Spoiler Protection**:
+  - Frontend-only blur (CSS filter) is **strictly rejected as insufficient**.
+  - Server serializes masked placeholder text into initial RSC/HTML payloads when content is flagged as a spoiler.
+  - Full content is delivered exclusively via an authenticated or explicit on-demand reveal request (`/api/spoiler/reveal` or `revealSpoiler`).
+  - Inspecting network requests or the DOM accessibility tree reveals zero unmasked spoiler text prior to the user's explicit action.
+- **Secure Image Uploads (Cloudflare R2)**: Direct presigned PUT uploads bypass application compute. Files are limited to 5MB and validated against `image/webp`, `image/jpeg`, and `image/png`. Images are served from an isolated origin (`media.anivio.app`).
 
 ### 1.4 Rate Limiting & Anti-Abuse (Upstash Redis)
 - **Token Bucket Limits**:
   - Post creation: 5 posts / hour per user.
   - Comment creation: 30 comments / hour per user.
   - Voting: 120 votes / minute per user.
-  - Anime search (`/api/search/anime`): 30 requests / minute per IP.
+  - Catalog search (`/api/search/anime`): 30 requests / minute per IP.
+  - Spoiler reveal (`/api/spoiler/reveal`): 120 requests / minute per IP.
+  - Media upload signing (`/api/upload/sign`): 10 uploads / hour per user.
 - **New Account Quarantine**: Accounts under 24 hours old have quartered limits and are **blocked from posting external hyperlinks**.
 - **Automated 3-Report Threshold**: 3 unique reports from accounts >24h old automatically transition content to `status = 'filtered'` and enqueue it in `/mod`.
-- **Shadowbanning (`is_shadowbanned`)**: Spammers experience normal site operations, but public queries filter out their content.
+- **Shadowbanning (`is_shadowbanned`)**: Spammers experience normal site operations, but public feed queries filter out their content.
 - **Privacy-Compliant IP Logging**: Hashed with a rotating salt (`SHA256(ip + salt)`) in `audit_log` with a strict 30-day retention policy.
+- **Provider Terms & Scraping Ban**: Tenrai and AniList integration strictly follows upstream provider quotas, terms of service, and rate limits. Scraping is strictly prohibited.
 
 ---
 
@@ -61,16 +76,16 @@ Anivio enforces a high-value, layered test suite running on every pull request:
 |---|---|---|---|
 | **Unit Tests** | Vitest | ~30 tests | Wilson Score math, Hot Rank decay, path sequence algorithms, Zod schemas, normalizers |
 | **Integration Tests** | Vitest + Postgres | ~15 tests | `add_comment()` advisory lock, depth cap <= 8, composite PK duplicate votes, snapshot upsert |
-| **E2E Tests** | Playwright | 4 journeys | Browser journeys: Onboarding, Post creation with tags, Comment nesting, Watchlist toggle |
+| **E2E Tests** | Playwright | 4 journeys | Browser journeys: Onboarding, Post creation with tags, Comment nesting, Library toggle |
 | **Failure Injection** | Custom scripts | 3 scenarios | Upstream API down (snapshot fallback), Redis down, Database read-only |
-| **Manual A11y** | Axe / Screen Reader | 5 pages | Keyboard trapping, focus visibility, contrast validation, screen reader nesting |
+| **Manual A11y** | Axe / Screen Reader | 5 pages | Keyboard trapping, focus visibility, contrast validation, screen reader spoiler masking |
 | **Load Testing** | k6 | 1 script | 200 concurrent readers on feed & 1,000-comment thread (<400ms server p95) |
 
 ### 2.2 The 4 Critical Playwright Journeys
 1. **Journey 1: Auth & Onboarding**: OAuth mock callback -> `/auth/onboarding` -> Unique username validation -> Session cookie verification.
-2. **Journey 2: Community & Post Creation**: Navigate to `/c/create` -> Create community -> Post with `@Anime` tag -> Verify inline `AnimeTagPill`.
-3. **Journey 3: Commenting & Voting**: Post reply -> 3-level nesting -> Indent collapse -> Optimistic upvote score increment.
-4. **Journey 4: Hover Card & Watchlist**: Hover over `AnimeTagPill` -> Open `AnimeHoverCard` -> Toggle "Watching" -> Verify item appears in `/u/[username]/watchlist`.
+2. **Journey 2: Community & Post Creation**: Admin provisioned community -> Join community -> Author post with `@Title` catalog tag -> Verify inline `CatalogTagPill`.
+3. **Journey 3: Commenting, Voting & Spoilers**: Post reply -> 3-level nesting -> Indent collapse -> Optimistic upvote score increment -> Spoiler block reveal test (verify no leakage in initial response payload).
+4. **Journey 4: Hover Card & Library Tracking**: Hover over `CatalogTagPill` -> Open `CatalogHoverCard` -> Toggle "Watching/Reading" -> Verify title appears in `/u/[username]/library`.
 
 ### 2.3 Automated Performance Budgets
 - First-load JavaScript (Feed page): **< 180 KB compressed**.
@@ -141,6 +156,9 @@ All configuration values are environment-driven and strictly validated at boot t
 | `SENTRY_DSN` | Sentry project DSN for client/server telemetry | No | Local, Vercel Preview, Production |
 | `NEXT_PUBLIC_SITE_URL`| Canonical site origin (`https://anivio.app`) | No | Local, Vercel Preview, Production |
 
+> [!WARNING]
+> Never commit `.env` or real API credentials to source control. Use `.env.example` with safe placeholder tokens only.
+
 ---
 
 ## 5. CI/CD Pipeline & Migration Policy
@@ -164,4 +182,3 @@ Every pull request to `main` must pass automated quality gates:
 - **Point-in-Time Recovery (PITR)**: Neon automated 7-day continuous PITR.
 - **Weekly Logical Dump**: GitHub Actions executes a scheduled `pg_dump` every Sunday night, encrypted and archived to Cloudflare R2 with a 30-day retention policy.
 - **Spending Caps**: Hard billing alerts configured on Vercel ($20 spend cap), Neon (2 CU max), and Upstash (hard block at free limit).
-
