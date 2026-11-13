@@ -1,10 +1,11 @@
 # Anivio — Database Architecture, Server Actions & API Contracts
 
 > **Single Source of Truth (SSOT) for Relational Persistence, DDL Schemas, Server Actions & External Adapters**  
-> Status: **LOCKED BASELINE (Version 1.0)**  
-> Last Updated: 12 November 2026
+> Status: **CONSOLIDATED BASELINE (Version 1.1)**  
+> Last Updated: 12 November 2026  
+> Document Alignment: Reconciled with `README.md` & `ARCHITECTURE.md` (Version 1.1 Consolidated Architecture Baseline)
 
-This document is the authoritative backend specification for the Anivio Anime Community Platform. It defines the PostgreSQL 16+ relational schema, entity-relationship models, DDL statements, stored procedural functions, Server Actions, Route Handlers, external metadata adapter contracts, and the caching matrix.
+This document is the authoritative backend specification for the Anivio Platform. It defines the PostgreSQL 16+ relational schema, entity-relationship models, DDL statements, stored procedural functions, Server Actions, Route Handlers, external metadata adapter contracts, and the caching matrix.
 
 ---
 
@@ -30,6 +31,10 @@ erDiagram
     USERS ||--o{ COMMUNITY_MEMBERS : "joins"
     USERS ||--o{ REPORTS : "files"
     USERS ||--o{ SESSIONS : "holds"
+    USERS ||--o{ USER_FOLLOWS : "follows"
+    USERS ||--o{ USER_BLOCKS : "blocks"
+    USERS ||--o{ NOTIFICATIONS : "receives"
+    USERS ||--o{ BOOKMARKS : "saves"
 
     COMMUNITIES ||--o{ POSTS : "contains"
     COMMUNITIES ||--o{ COMMUNITY_MEMBERS : "has"
@@ -38,6 +43,7 @@ erDiagram
     POSTS ||--o{ POST_TAGS : "tags"
     POSTS ||--o{ POST_MEDIA : "attaches"
     POSTS ||--o{ POST_VOTES : "receives"
+    POSTS ||--o{ BOOKMARKS : "bookmarked_by"
 
     COMMENTS ||--o{ COMMENTS : "replies_to"
     COMMENTS ||--o{ COMMENT_VOTES : "receives"
@@ -53,6 +59,7 @@ erDiagram
         text role
         integer karma
         boolean is_shadowbanned
+        boolean is_deleted
         timestamptz created_at
     }
 
@@ -74,7 +81,9 @@ erDiagram
         jsonb content
         text content_text
         integer linked_mal_id
+        text linked_entity_type
         boolean is_spoiler
+        text spoiler_unit
         text status
         integer comment_count
         integer score
@@ -115,10 +124,40 @@ erDiagram
     WATCHLISTS {
         uuid user_id PK,FK
         integer mal_id PK
+        text entity_type
         text status
         smallint score
-        integer episodes_watched
+        integer progress_unit
         timestamptz updated_at
+    }
+
+    USER_FOLLOWS {
+        uuid follower_id PK,FK
+        uuid following_id PK,FK
+        timestamptz created_at
+    }
+
+    USER_BLOCKS {
+        uuid blocker_id PK,FK
+        uuid blocked_id PK,FK
+        timestamptz created_at
+    }
+
+    NOTIFICATIONS {
+        uuid id PK
+        uuid user_id FK
+        uuid actor_id FK
+        text type
+        text target_type
+        uuid target_id
+        boolean is_read
+        timestamptz created_at
+    }
+
+    BOOKMARKS {
+        uuid user_id PK,FK
+        uuid post_id PK,FK
+        timestamptz created_at
     }
 ```
 
@@ -126,7 +165,7 @@ erDiagram
 
 ## 2. Table Schemas & Constraints (DDL)
 
-### 2.1 Identity & Authentication
+### 2.1 Identity, Authentication & Social Graph
 ```sql
 CREATE TABLE users (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -164,6 +203,23 @@ CREATE TABLE sessions (
   expires timestamptz NOT NULL
 );
 CREATE INDEX sessions_user_id_idx ON sessions(user_id);
+
+CREATE TABLE user_follows (
+  follower_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  following_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (follower_id, following_id),
+  CONSTRAINT user_follows_no_self CHECK (follower_id != following_id)
+);
+CREATE INDEX user_follows_following_idx ON user_follows(following_id);
+
+CREATE TABLE user_blocks (
+  blocker_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  blocked_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (blocker_id, blocked_id),
+  CONSTRAINT user_blocks_no_self CHECK (blocker_id != blocked_id)
+);
 ```
 
 ### 2.2 Communities & Posts
@@ -197,7 +253,9 @@ CREATE TABLE posts (
   content jsonb NOT NULL,
   content_text text NOT NULL DEFAULT '',
   linked_mal_id integer,
+  linked_entity_type text NOT NULL DEFAULT 'anime' CHECK (linked_entity_type IN ('anime', 'manga', 'light_novel', 'webtoon')),
   is_spoiler boolean NOT NULL DEFAULT false,
+  spoiler_unit text, -- e.g. "Episode 12", "Chapter 45"
   status text NOT NULL DEFAULT 'published' CHECK (status IN ('published', 'removed', 'filtered')),
   comment_count integer NOT NULL DEFAULT 0,
   score integer NOT NULL DEFAULT 0,
@@ -221,7 +279,7 @@ CREATE INDEX posts_author_idx ON posts (author_id, created_at DESC);
 
 CREATE TABLE post_tags (
   post_id uuid NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
-  entity_type text NOT NULL CHECK (entity_type IN ('anime', 'character', 'episode')),
+  entity_type text NOT NULL CHECK (entity_type IN ('anime', 'manga', 'light_novel', 'webtoon', 'character', 'episode')),
   entity_id integer NOT NULL,
   display_label text NOT NULL,
   PRIMARY KEY (post_id, entity_type, entity_id)
@@ -240,6 +298,14 @@ CREATE TABLE post_media (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX post_media_post_id_idx ON post_media(post_id);
+
+CREATE TABLE bookmarks (
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  post_id uuid NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, post_id)
+);
+CREATE INDEX bookmarks_user_idx ON bookmarks(user_id, created_at DESC);
 ```
 
 ### 2.3 Comments, Hierarchy & Voting
@@ -285,14 +351,17 @@ CREATE TABLE comment_votes (
 );
 ```
 
-### 2.4 Watchlists, Episodes & Snapshots
+### 2.4 Library Tracking, Catalog Units & Snapshots
 ```sql
 CREATE TABLE watchlists (
   user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   mal_id integer NOT NULL,
-  status text NOT NULL CHECK (status IN ('watching', 'completed', 'dropped', 'planned')),
+  entity_type text NOT NULL DEFAULT 'anime' CHECK (entity_type IN ('anime', 'manga', 'light_novel', 'webtoon')),
+  status text NOT NULL CHECK (status IN ('watching', 'reading', 'completed', 'on_hold', 'dropped', 'planned')),
   score smallint CHECK (score BETWEEN 1 AND 10 OR score IS NULL),
   episodes_watched integer NOT NULL DEFAULT 0 CHECK (episodes_watched >= 0),
+  chapters_read integer NOT NULL DEFAULT 0 CHECK (chapters_read >= 0),
+  volumes_read integer NOT NULL DEFAULT 0 CHECK (volumes_read >= 0),
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (user_id, mal_id)
 );
@@ -316,7 +385,7 @@ CREATE TABLE episode_threads (
 );
 
 CREATE TABLE provider_snapshots (
-  entity_type text NOT NULL CHECK (entity_type IN ('anime', 'character', 'episode', 'season')),
+  entity_type text NOT NULL CHECK (entity_type IN ('anime', 'manga', 'light_novel', 'webtoon', 'character', 'episode', 'season')),
   entity_id integer NOT NULL,
   provider text NOT NULL,
   payload jsonb NOT NULL,
@@ -325,7 +394,7 @@ CREATE TABLE provider_snapshots (
 );
 ```
 
-### 2.5 Moderation, Audit & Background Jobs
+### 2.5 Moderation, Notifications & Audit Logs
 ```sql
 CREATE TABLE reports (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -351,6 +420,18 @@ CREATE TABLE moderation_actions (
   reason text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE TABLE notifications (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  actor_id uuid REFERENCES users(id) ON DELETE SET NULL,
+  type text NOT NULL CHECK (type IN ('reply', 'mention', 'vote_milestone', 'moderation')),
+  target_type text NOT NULL CHECK (target_type IN ('post', 'comment', 'community')),
+  target_id uuid NOT NULL,
+  is_read boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX notifications_user_unread_idx ON notifications(user_id, created_at DESC) WHERE is_read = false;
 
 CREATE TABLE audit_log (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -460,13 +541,18 @@ All mutations in Anivio execute via Server Actions. Every action validates autho
 
 | Action Name | Input Arguments | Authorization | Database Effects | Error Codes |
 |---|---|---|---|---|
-| `createPost` | `{ communityId: uuid, title: string, documentJson: JSON, linkedMalId?: number, isSpoiler: boolean, mediaIds: uuid[] }` | Signed in, community member, account >24h for links, not shadowbanned | Inserts `posts`, `post_tags`, links `post_media`. Enqueues search update & revalidates feed. | `RateLimited`, `NotMember`, `ValidationFailed`, `Unauthenticated` |
-| `updatePost` | `{ postId: uuid, title: string, documentJson: JSON, linkedMalId?: number, isSpoiler: boolean }` | Post author within 24 hours OR community moderator | Updates `posts.title`, `posts.content`, recomputes tags, sets `edited_at = now()`. | `Forbidden`, `Expired`, `ValidationFailed`, `NotFound` |
+| `createPost` | `{ communityId: uuid, title: string, documentJson: JSON, linkedMalId?: number, linkedEntityType?: string, isSpoiler: boolean, spoilerUnit?: string, mediaIds: uuid[] }` | Signed in, community member, account >24h for links, not shadowbanned | Inserts `posts`, `post_tags`, links `post_media`. Enqueues search update & revalidates feed. | `RateLimited`, `NotMember`, `ValidationFailed`, `Unauthenticated` |
+| `updatePost` | `{ postId: uuid, title: string, documentJson: JSON, linkedMalId?: number, isSpoiler: boolean, spoilerUnit?: string }` | Post author within 24 hours OR community moderator | Updates `posts.title`, `posts.content`, recomputes tags, sets `edited_at = now()`. | `Forbidden`, `Expired`, `ValidationFailed`, `NotFound` |
 | `createComment` | `{ postId: uuid, parentId?: uuid, content: string, isSpoiler: boolean }` | Signed in, post published, depth <= 8 | Calls `add_comment()`, increments `posts.comment_count`, enqueues score job and notification. | `RateLimited`, `DepthExceeded`, `ParentMissing`, `Unauthenticated` |
 | `vote` | `{ targetType: 'post' \| 'comment', targetId: uuid, value: 1 \| -1 }` | Signed in, voter is NOT author of target | Upserts row in `post_votes` or `comment_votes`. Enqueues `recomputeScore` job. | `Forbidden`, `TargetMissing`, `RateLimited`, `Unauthenticated` |
-| `createCommunity` | `{ slug: string, name: string, description: string }` | Signed in, account age >= 3 days, max 2/wk | Inserts `communities`, creates owner row in `community_members`, writes `audit_log`. | `SlugTaken`, `RateLimited`, `ValidationFailed`, `Unauthenticated` |
+| `createCommunity` | `{ slug: string, name: string, description: string }` | **Platform Administrator** (Launch baseline; trusted-user creation deferred to post-launch) | Inserts `communities`, creates owner row in `community_members`, writes `audit_log`. | `Forbidden`, `SlugTaken`, `RateLimited`, `ValidationFailed`, `Unauthenticated` |
 | `joinCommunity` | `{ communityId: uuid }` | Signed in | Idempotent insert into `community_members`, increments `communities.member_count`. | `RateLimited`, `Unauthenticated`, `NotFound` |
-| `upsertWatchlistEntry` | `{ malId: number, status: 'watching' \| 'completed' \| 'dropped' \| 'planned', score?: number, episodesWatched?: number }` | Signed in, `malId` resolvable in metadata | Upserts row in `watchlists`. Validates `episodesWatched` <= total cached episodes. | `InvalidProgress`, `UnknownAnime`, `Unauthenticated` |
+| `upsertWatchlistEntry` | `{ malId: number, entityType?: string, status: 'watching' \| 'reading' \| 'completed' \| 'on_hold' \| 'dropped' \| 'planned', score?: number, episodesWatched?: number, chaptersRead?: number, volumesRead?: number }` | Signed in, `malId` resolvable in metadata | Upserts row in `watchlists`. Validates units <= total cached units. | `InvalidProgress`, `UnknownAnime`, `Unauthenticated` |
+| `followUser` | `{ targetUserId: uuid }` | Signed in, targetUserId != self, not blocked | Inserts into `user_follows`. | `SelfFollowNotAllowed`, `Blocked`, `RateLimited`, `Unauthenticated` |
+| `unfollowUser` | `{ targetUserId: uuid }` | Signed in | Deletes row from `user_follows`. | `Unauthenticated` |
+| `toggleBookmark` | `{ postId: uuid }` | Signed in | Idempotent insert or delete from `bookmarks`. | `RateLimited`, `Unauthenticated`, `NotFound` |
+| `revealSpoiler` | `{ targetType: 'post' \| 'comment', targetId: uuid }` | Signed in or session holder | Fetches and returns unmasked content for client render without pre-leaking in initial RSC payload. | `TargetNotFound`, `RateLimited` |
+| `markNotificationRead` | `{ notificationId: uuid }` | Signed in notification recipient | Sets `notifications.is_read = true`. | `NotFound`, `Forbidden`, `Unauthenticated` |
 | `reportTarget` | `{ targetType: 'post' \| 'comment', targetId: uuid, reason: string, note?: string }` | Signed in, reporter is NOT author of target | Inserts `reports`. If >= 3 unique valid reports, sets target `status = 'filtered'` and alerts mod. | `AlreadyReported`, `RateLimited`, `Unauthenticated` |
 | `resolveReport` | `{ reportId: uuid, decision: 'approve' \| 'remove' \| 'dismiss', reason: string }` | Community moderator OR Admin | Updates report state, modifies target status, writes immutable `moderation_actions` row. | `Forbidden`, `AlreadyResolved`, `Unauthenticated` |
 | `deleteAccount` | `{ confirmation: string }` | Active session owner | Anonymizes user row, deletes sessions/accounts, retains authored posts with deleted marker. | `ConfirmationMismatch`, `Unauthenticated` |
@@ -477,10 +563,11 @@ All mutations in Anivio execute via Server Actions. Every action validates autho
 
 | Route Path | Method | Purpose | Cache Policy | Rate Limit |
 |---|---|---|---|---|
-| `/api/search/anime` | `GET` | Debounced anime search for navbar & editor combobox | 1 hour per query string in Redis | 30 requests / min per IP |
+| `/api/search/anime` | `GET` | Debounced anime/manga search for navbar & editor combobox | 1 hour per query string in Redis | 30 requests / min per IP |
 | `/api/hover/anime/[id]` | `GET` | Lightweight payload for inline tag hover cards | 24 hours in Redis & edge | 120 requests / min per IP |
 | `/api/feed` | `GET` | Keyset-paginated post feed for infinite scroll | Dynamic (no cache for signed-in; 60s for anon) | 60 requests / min per IP |
 | `/api/comments` | `GET` | Subtree fetch for deep "continue this thread" branches | None (always live query) | 60 requests / min per IP |
+| `/api/spoiler/reveal` | `POST` | Server-validated endpoint to fetch masked spoiler body | Dynamic (server-enforced withholding) | 120 requests / min per IP |
 | `/api/upload/sign` | `POST` | Authorizes & returns presigned Cloudflare R2 upload URL | None (private, signed) | 10 uploads / hour per user |
 | `/api/health` | `GET` | Database, Redis, and Metadata provider availability probe | None | Unrestricted (monitoring only) |
 | `/api/cron/daily` | `POST` | Scheduled daily maintenance: season refresh, score sync, orphan sweep | None | Protected via `Authorization: Bearer <CRON_SECRET>` |
@@ -491,14 +578,15 @@ All mutations in Anivio execute via Server Actions. Every action validates autho
 
 ### 6.1 TypeScript Adapter Interface
 ```typescript
-export type AnimeSummary = {
-  malId: number;
+export type CatalogItemSummary = {
+  id: number;
+  entityType: 'anime' | 'manga' | 'light_novel' | 'webtoon';
   title: string;
   titleEnglish: string | null;
   images: { small: string; medium: string; large: string };
   score: number | null;
-  episodes: number | null;
-  status: 'airing' | 'finished' | 'upcoming' | 'unknown';
+  totalUnits: number | null; -- episodes, chapters, or volumes
+  status: 'airing' | 'publishing' | 'finished' | 'upcoming' | 'unknown';
   genres: string[];
   year: number | null;
   synopsis: string | null;
@@ -508,12 +596,12 @@ export type AnimeSummary = {
 
 export interface MetadataProvider {
   name: string;
-  searchAnime(query: string, page: number): Promise<Page<AnimeSummary>>;
-  getSeason(season: string, year: number, page: number): Promise<Page<AnimeSummary>>;
-  getTop(page: number): Promise<Page<AnimeSummary>>;
-  getAnime(malId: number): Promise<AnimeSummary>;
-  getEpisodes(malId: number, page: number): Promise<Page<EpisodeSummary>>;
-  getCharacters(malId: number, page: number): Promise<Page<CharacterSummary>>;
+  search(query: string, type: string, page: number): Promise<Page<CatalogItemSummary>>;
+  getSeason(season: string, year: number, page: number): Promise<Page<CatalogItemSummary>>;
+  getTop(type: string, page: number): Promise<Page<CatalogItemSummary>>;
+  getItem(id: number, type: string): Promise<CatalogItemSummary>;
+  getUnits(id: number, type: string, page: number): Promise<Page<UnitSummary>>;
+  getCharacters(id: number, type: string, page: number): Promise<Page<CharacterSummary>>;
 }
 ```
 
@@ -521,7 +609,7 @@ export interface MetadataProvider {
 1. **Timeout & Retries**: 5-second socket timeout; max 2 retries with exponential backoff and randomized jitter.
 2. **Rate Limit Handling**: Strictly honor upstream `Retry-After` headers on HTTP 429. Cache 404 responses negatively for 10 minutes.
 3. **Token Bucket Consumption**: Consume a Redis token before dispatching outbound requests; release token immediately if satisfied by local cache.
-4. **Single-Flight Mutex**: Enforce an in-memory/Redis mutex lock per entity key so that concurrent misses for the same anime generate exactly one upstream fetch.
+4. **Single-Flight Mutex**: Enforce an in-memory/Redis mutex lock per entity key so that concurrent misses for the same catalog item generate exactly one upstream fetch.
 5. **Snapshot Persistence**: Automatically write an upsert row to `provider_snapshots` before returning. If outbound network fails, immediately serve the latest snapshot with `DegradedNotice`.
 6. **Error Isolation**: Never throw raw network or provider errors across the module boundary. Return a typed `Result<T, ProviderError>` object.
 
@@ -533,11 +621,13 @@ export interface MetadataProvider {
 |---|---|---|---|
 | Season & Top Lists | Next.js `'use cache'` | 24 Hours | Time-based; refreshed by daily cron |
 | Show Detail & Synopsis | Next.js Cache + `provider_snapshots` | 24 Hours | Time-based, or manual refresh when score shifts materially |
-| Anime Search Results | Upstash Redis | 1 Hour | Time-based (negative misses cached 5 minutes) |
+| Catalog Search Results | Upstash Redis | 1 Hour | Time-based (negative misses cached 5 minutes) |
 | Inline Tag Hover Payload | Route Handler + Redis | 24 Hours | Time-based |
 | Airing Episode Lists | PostgreSQL `episodes` table | 7 Days | Daily cron job (refreshing currently airing shows only) |
 | Post Body & Metadata | Next.js Server Component Cache | 60 Seconds | Tagged invalidation on post edit, removal, or report |
+| Spoiler-Masked Content | Server-Enforced Masking | Dynamic | Never cached in raw RSC payload; delivered on demand |
 | Comment Tree | Direct Database Query (GiST index) | **NEVER** | Always live query (<400ms server budget) |
 | User Profile | Framework Cache | 60 Seconds | Tagged invalidation on username or avatar update |
+| Social Graph & Follows | Database Query | **NEVER** | Always live query for accurate feeds |
+| Notifications & Bookmarks | Direct Database Query | **NEVER** | Private user state; live keyset queries |
 | Watchlists & Settings | Direct Database Query (owner only) | **NEVER** | Personal user state must never be cached across users |
-
