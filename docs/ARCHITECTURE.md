@@ -1,10 +1,11 @@
 # Anivio — System Architecture, Technology Stack & Decision Records
 
 > **Single Source of Truth (SSOT) for Codebase Organization, Technology Rationale & Architecture Decision Records**  
-> Status: **LOCKED BASELINE (Version 1.0)**  
-> Last Updated: 12 November 2026
+> Status: **CONSOLIDATED BASELINE (Version 1.1)**  
+> Last Updated: 12 November 2026  
+> Document Alignment: Reconciled with `README.md` (Version 1.1 Consolidated Architecture Baseline)
 
-This document defines the overarching technical architecture of the Anivio Anime Community Platform. It specifies the technology stack, target repository layout, module boundaries, component execution paradigms, formal Architecture Decision Records (`ADR-001` through `ADR-012`), and the Open Decisions Register.
+This document defines the overarching technical architecture of the Anivio Platform. It specifies the technology stack, target repository layout, module boundaries, component execution paradigms, formal Architecture Decision Records (`ADR-001` through `ADR-014`), Source Material Reconciliation Records (`CR-01` through `CR-08`), and the Open Decisions Register.
 
 ---
 
@@ -26,11 +27,13 @@ flowchart TD
     end
 
     subgraph Domain_Modules ["Domain Modules (src/modules)"]
-        ServerActions --> AuthMod["auth (Auth.js)"]
+        ServerActions --> AuthMod["auth (Sessions, Guards)"]
+        ServerActions --> UserMod["users (Profiles, Follows, Blocks)"]
         ServerActions --> DiscMod["discussions (Posts, Comments, Votes)"]
         ServerActions --> CommMod["communities (Memberships, Feeds)"]
-        ServerActions --> WatchMod["watchlist (Tracking, Episodes)"]
+        ServerActions --> WatchMod["watchlist (Tracking, Episodes/Chapters)"]
         ServerActions --> ModMod["moderation (Reports, Audit)"]
+        ServerActions --> NotifMod["notifications (In-App Dispatch)"]
         RouteHandlers --> MetaMod["metadata (Adapters, Cache, Snapshots)"]
     end
 
@@ -40,18 +43,31 @@ flowchart TD
         WatchMod --> Drizzle
         ModMod --> Drizzle
         AuthMod --> Drizzle
-        Drizzle --> NeonPG[("Neon Serverless PostgreSQL 16+ (ltree, pg_trgm)")]
-        MetaMod --> UpstashRedis[("Upstash Serverless Redis (Token Bucket)")]
+        UserMod --> Drizzle
+        NotifMod --> Drizzle
+        Drizzle --> NeonPG[("Neon Serverless PostgreSQL 16+ (ltree, pg_trgm, citext)")]
+        MetaMod --> UpstashRedis[("Upstash Serverless Redis (Token Bucket & Rate Limits)")]
         ServerActions --> CloudflareR2[("Cloudflare R2 (Presigned S3 Uploads)")]
     end
 
-    subgraph Upstream_APIs ["Upstream Providers"]
-        MetaMod --> Tenrai["Tenrai API v1 (Primary)"]
+    subgraph Upstream_APIs ["Upstream Providers & Integrations"]
+        MetaMod --> Tenrai["Tenrai API v1 (Primary Anime)"]
         MetaMod --> AniList["AniList GraphQL (Fallback)"]
         AuthMod --> OAuthProviders["Google / Discord OAuth"]
         App_Router --> Sentry["Sentry Error Tracking"]
     end
 ```
+
+### Domain Modules Overview
+- `auth`: Sessions, OAuth integration, onboarding, access guards, and role verification.
+- `users`: User profiles, account settings, follow graph, and user blocks.
+- `communities`: Community directory, memberships, roles (owner, moderator, member), rules, and flairs.
+- `discussions`: Posts, rich-text serialization, media attachments, comments (`ltree`), voting, and ranking.
+- `catalog` / `metadata`: Normalized catalog entities (anime, manga, manhwa, novels), provider adapters, rate-limited caching, and snapshots.
+- `watchlist` / `library`: User library items, generic reading/watching status tracking, unit progress (episodes/chapters/volumes), and reviews.
+- `moderation`: Content reporting queue, automated filtering thresholds, moderator actions, and immutable audit logs.
+- `notifications`: In-app notification creation, delivery, and read state management.
+- `jobs`: Background worker tasks, scheduled ranking recalculations, and maintenance routines.
 
 ---
 
@@ -59,7 +75,7 @@ flowchart TD
 
 | Category | Technology | Target Version | Architectural Role | Rejected Alternatives |
 |---|---|---|---|---|
-| **Framework** | Next.js | `16.x` | App Router, Server Components, Cache Components, Server Actions | Express + React SPA (dual repo friction), Remix |
+| **Framework** | Next.js | `16.x` | App Router, Server Components, Cache Components, Server Actions | Express + React SPA (dual-repo friction), Remix, NestJS separate API |
 | **Language** | TypeScript | `5.x` | Strict typing (`noImplicitAny`, strict null checks) across full stack | JavaScript, loosely typed TS |
 | **UI Styling** | Tailwind CSS | `3.4.x` | CSS variables-driven design tokens (`src/styles/tokens.css`) | Styled-components (runtime CSS-in-JS breaks RSC) |
 | **UI Primitives** | shadcn/ui | Latest CLI | Accessible headless primitives copied into `components/ui/` | Material UI, Ant Design (heavy runtime bundle) |
@@ -69,7 +85,7 @@ flowchart TD
 | **Cache & Limits**| Upstash Redis| `1.34.x` | Distributed token bucket rate limiter and query cache | Node-cache (wiped on serverless cold starts) |
 | **Object Storage**| Cloudflare R2 | S3 API | Presigned direct uploads for post media; zero egress fees | AWS S3 (high egress fees), Vercel Blob |
 | **Metadata Engine**| Tenrai API v1| REST v1 | Primary anime discovery provider; MAL ID compatible | Jikan v4 (discontinued, aggressive 429 bans) |
-| **Metadata Backup**| AniList API | GraphQL v2 | Secondary fallback provider when Tenrai is down | Custom scraping (fragile, violates Terms of Service) |
+| **Metadata Backup**| AniList API | GraphQL v2 | Secondary fallback provider when Tenrai is unavailable | Custom scraping (fragile, violates Terms of Service) |
 | **Validation** | Zod | `3.23.x` | Shared schemas validating form inputs and Server Action payloads| Yup, Joi |
 | **Post Editor** | Tiptap | `2.x` | Headless rich-text editor with restricted schema & custom tag node | Draft.js, Quill, raw Markdown textarea |
 | **Unit Testing** | Vitest | `2.x` | Unit tests for ranking math, path construction, Zod schemas | Jest (slower, complex ESM/TypeScript configuration) |
@@ -82,9 +98,9 @@ flowchart TD
 ## 3. Repository Layout & Target Directory Structure
 
 ```text
-/
-├── README.md                      # Public GitHub repository overview
-├── docs/                          # SSOT Documentation System (6 Core Docs)
+anivio/
+├── README.md                      # Public GitHub repository overview (SSOT baseline overview)
+├── docs/                          # SSOT Documentation System (6 Core Domain Guides)
 │   ├── README.md                  # Documentation index & navigation map
 │   ├── PRODUCT_SPEC.md            # Product vision, requirements & user workflows
 │   ├── ARCHITECTURE.md            # Tech stack, repo layout, import rules & ADRs
@@ -95,36 +111,39 @@ flowchart TD
 ├── drizzle/                       # Numbered forward-only SQL migrations (0001–0010)
 ├── scripts/                       # Idempotent seed scripts (minimal, realistic, stress)
 ├── public/                        # Static assets (favicons, logos, OG image templates)
-├── src/
-│   ├── app/                       # Next.js 16 App Router (routes, layouts, boundaries)
-│   │   ├── (marketing)/           # Static policy pages (/about, /terms, /privacy)
-│   │   ├── (main)/                # Core experience (/, /season, /top, /c, /anime, /u)
-│   │   ├── (auth)/                # /auth/signin and /auth/onboarding
-│   │   ├── mod/                   # Moderation queue (/mod, /mod/log)
-│   │   └── api/                   # Public & maintenance route handlers
-│   ├── components/                # UI component library
-│   │   ├── ui/                    # Unstyled shadcn primitives
-│   │   ├── anime/                 # AnimeCard, AnimeTagPill, AnimeHoverCard, EpisodeRow
-│   │   ├── discussion/            # PostCard, CommentTree, CommentNode, VoteControl
-│   │   ├── community/             # CommunityHeader, JoinButton, SortTabs
-│   │   └── feedback/              # Skeleton, EmptyState, ErrorState, DegradedNotice
-│   ├── modules/                   # Domain business logic & data access
-│   │   ├── auth/                  # Sessions, onboarding helpers, role guards
-│   │   ├── metadata/              # Adapters (Tenrai/AniList), snapshots, token bucket
-│   │   ├── communities/           # Schema, queries, actions, slug validation
-│   │   ├── discussions/           # Posts, comments (ltree), votes, ranking math
-│   │   ├── watchlist/             # Schema, queries, progress updates
-│   │   ├── moderation/            # Reports, automated thresholds, audit log
-│   │   └── jobs/                  # Background worker queue & scheduled handlers
-│   ├── lib/                       # Infrastructure clients (db, redis, storage, env)
-│   └── styles/                    # tokens.css (CSS variables) and globals.css
+└── src/
+    ├── app/                       # Next.js 16 App Router (routes, layouts, boundaries)
+    │   ├── (marketing)/           # Static policy pages (/about, /terms, /privacy)
+    │   ├── (main)/                # Core experience (/, /season, /top, /c, /anime, /u)
+    │   ├── (auth)/                # /auth/signin and /auth/onboarding
+    │   ├── mod/                   # Moderation queue (/mod, /mod/log)
+    │   └── api/                   # Public & maintenance route handlers
+    ├── components/                # UI component library
+    │   ├── ui/                    # Unstyled shadcn primitives
+    │   ├── anime/                 # AnimeCard, AnimeTagPill, AnimeHoverCard, EpisodeRow
+    │   ├── discussion/            # PostCard, CommentTree, CommentNode, VoteControl
+    │   ├── community/             # CommunityHeader, JoinButton, SortTabs
+    │   └── feedback/              # Skeleton, EmptyState, ErrorState, DegradedNotice
+    ├── modules/                   # Domain business logic & data access
+    │   ├── auth/                  # Sessions, onboarding helpers, role guards
+    │   ├── users/                 # Profiles, settings, user follows & blocks
+    │   ├── metadata/              # Adapters (Tenrai/AniList), snapshots, token bucket
+    │   ├── communities/           # Schema, queries, actions, slug validation
+    │   ├── discussions/           # Posts, comments (ltree), votes, ranking math
+    │   ├── watchlist/             # Schema, queries, progress updates
+    │   ├── moderation/            # Reports, automated thresholds, audit log
+    │   ├── notifications/         # In-app notification dispatcher & event handlers
+    │   └── jobs/                  # Background worker queue & scheduled handlers
+    ├── lib/                       # Infrastructure clients (db, redis, storage, env)
+    └── styles/                    # tokens.css (CSS variables) and globals.css
 ```
 
 ### Module Boundary & Import Rules
-- **Rule 1**: `src/lib/` may only import external third-party libraries. It must never import from `src/modules/` or `src/app/`.
-- **Rule 2**: `src/components/ui/` primitives must never import domain modules or database queries.
-- **Rule 3**: Domain modules in `src/modules/` must never import presentation code or JSX components.
-- **Rule 4**: Server Components in `src/app/` compose components and invoke module actions; no module may import from `src/app/`.
+- **Rule 1**: `src/lib/` contains infrastructure clients (database, redis, storage, env). It may only import external third-party libraries and must never import from `src/modules/` or `src/app/`.
+- **Rule 2**: `src/components/ui/` contains reusable headless primitives and must never import domain modules, database queries, or server-side actions.
+- **Rule 3**: Domain modules in `src/modules/` contain domain logic and persistence access, and must never import presentation code or JSX components.
+- **Rule 4**: Server Components in `src/app/` compose components and invoke module operations; no domain module may import from `src/app/`.
+- **Rule 5**: Cross-module dependencies must use narrow exported functions or typed contracts; deep imports into another module's internal files are strictly forbidden.
 
 ---
 
@@ -132,30 +151,34 @@ flowchart TD
 
 To guarantee our performance budget (**First-load JS < 180 KB compressed**), Anivio enforces a **Server-First Component Policy**:
 - **Default**: Every component is a React Server Component (RSC), shipping 0 KB of client JavaScript.
-- **Client Islands (`'use client'`)**: Restricted strictly to 10 leaf interactive components:
+- **Client Islands (`'use client'`)**: Restricted strictly to leaf interactive components requiring browser DOM events or state:
   1. `PostEditor.tsx`: Tiptap rich-text state and media dropzone.
   2. `VoteControl.tsx`: Immediate optimistic upvote/downvote feedback.
   3. `CommentComposer.tsx`: Controlled reply input and optimistic insert.
   4. `CommentNode.tsx`: Collapse/expand subtree toggle and inline reply form.
-  5. `SpoilerBlock.tsx`: Local reveal toggle without server round-trip.
+  5. `SpoilerBlock.tsx`: Interactive reveal trigger that unlocks spoiler content through server-validated reveal or authorized action, ensuring sensitive text is not leaked in initial RSC payloads.
   6. `SearchBox.tsx`: Debounced keyboard input and combobox focus trap.
   7. `AnimeHoverCard.tsx`: Floating UI portal and Escape dismissal.
-  8. `WatchlistControl.tsx`: Interactive status selector and episode counter.
+  8. `WatchlistControl.tsx`: Interactive status selector and episode/chapter counter.
   9. `MobileDrawer.tsx`: Off-canvas navigation slide-out.
   10. `Toast.tsx`: Transient feedback notification container.
 
 ---
 
-## 5. Source Material Conflict Resolutions
+## 5. Source Material Conflict Resolutions & Reconciliations
 
-During source analysis of the two initial planning documents, four critical contradictions were identified and resolved in favor of the **Build Planning Document**:
+This section records formal reconciliation between initial planning documents and the consolidated baseline established in `README.md` (Version 1.1):
 
-| # | Topic | Architecture Plan Recommendation | Build Planning Baseline (LOCKED) | Formal Resolution & Rationale |
+| # | Topic | Architecture Plan Draft | Consolidated Baseline (Version 1.1) | Formal Resolution & Rationale |
 |---|---|---|---|---|
-| **CR-01** | Primary Anime Metadata Engine | Jikan REST API v4 | Tenrai API v1 as Primary, AniList as Fallback, PostgreSQL Snapshots | **Resolved to Tenrai + Snapshots**. Jikan v4 is unmaintained and experiences severe 429 IP bans. Tenrai provides active MAL-compatible endpoints. Snapshots ensure zero site downtime during outages. |
-| **CR-02** | Caching Architecture | Next.js `cacheLife` around raw `fetch` | Three-layer caching: `'use cache'`, Redis token bucket, PostgreSQL snapshots | **Resolved to Three-Layer Model**. `cacheLife` alone cannot buffer external rate-limited APIs across serverless instances. Multi-layer isolates rendering, rate limits, and durability. |
+| **CR-01** | Primary Anime Metadata Engine | Jikan REST API v4 | Tenrai API v1 Primary, AniList Fallback, DB Snapshots | **Resolved to Tenrai + Snapshots**. Jikan v4 is unmaintained and experiences severe IP bans. Tenrai provides active MAL-compatible endpoints. Snapshots ensure zero downtime during outages. |
+| **CR-02** | Caching Architecture | Next.js `cacheLife` around raw `fetch` | Three-layer caching: `'use cache'`, Redis token bucket, DB snapshots | **Resolved to Three-Layer Model**. `cacheLife` alone cannot buffer external rate-limited APIs across serverless instances. Multi-layer isolates rendering, rate limits, and persistence. |
 | **CR-03** | Comment Nesting Depth Cap | Up to 10 levels deep | Hard-capped at 8 levels via database constraint | **Resolved to 8 levels**. 10 levels causes unusable horizontal compression on 320px mobile screens. Enforced via `CHECK (depth BETWEEN 1 AND 8)`. |
 | **CR-04** | Real-Time Chat & WebSockets | Considered for real-time notifications | Strictly excluded from MVP scope | **Resolved to Strict Exclusion**. Stateful WebSocket servers dramatically increase hosting costs and moderation overhead. Asynchronous threaded comments scale cleanly. |
+| **CR-05** | Community Creation Policy | Open creation for accounts >3 days old | Admin-provisioned creation for MVP launch | **Resolved to Admin-Provisioned Launch**. Mitigates spam, ghost communities, and moderation overload during launch. Architecture preserves owner/moderator roles for future trusted-user rollout. |
+| **CR-06** | Content Domain Scope | Anime-only database assumptions | Extensible fiction entity model (Anime-first metadata) | **Resolved to Extensible Catalog Baseline**. Schema and entities support Anime, Manga, Manhwa, Light Novels, and Webtoons while anime metadata is prioritized for initial adapters. |
+| **CR-07** | Spoiler Protection Security | Client-side CSS blur only | Server-enforced response filtering | **Resolved to Server-Side Protection**. Frontend blur leaks hidden content in JSON payloads. Server must withhold sensitive text until an authorized reveal request is validated. |
+| **CR-08** | Monolith vs. Microservices | Multi-service API proposed | Modular Monolith (Next.js + Drizzle + Neon) | **Resolved to Modular Monolith**. Single deployable unit maximizes developer velocity, eliminates network hop latency, and simplifies transaction management. |
 
 ---
 
@@ -233,6 +256,18 @@ During source analysis of the two initial planning documents, four critical cont
 - **Decision**: Hash IP addresses with a rotating monthly salt (`SHA256(ip + salt)`) in `audit_log` with a 30-day retention policy.
 - **Consequences**: Fully compliant with GDPR and modern privacy standards.
 
+### ADR-013: Server-Enforced Spoiler Withholding
+- **Status**: `LOCKED`
+- **Context**: Client-side CSS blur reveals spoilers in raw API/RSC JSON payloads, spoiling users via browser DevTools or accessibility trees.
+- **Decision**: Server enforces spoiler masking before serializing posts/comments; withheld text is delivered only via an authenticated or explicit reveal action.
+- **Consequences**: Guarantees true spoiler privacy across all client devices and network inspectors.
+
+### ADR-014: Extensible Multi-Format Catalog Entity Model
+- **Status**: `LOCKED`
+- **Context**: The product scope spans Anime, Manga, Manhwa, Light Novels, and Webtoons, while early implementations prioritize anime metadata.
+- **Decision**: Define a generalized `catalog_items` schema with a `type` discriminator (anime, manga, light_novel, webtoon) and generalized story units (episodes, chapters, volumes) rather than anime-only column names.
+- **Consequences**: Future media expansions require zero breaking database schema changes.
+
 ---
 
 ## 7. Open Decisions Register
@@ -241,9 +276,9 @@ During source analysis of the two initial planning documents, four critical cont
 |---|---|---|---|---|
 | **OD-01** | Character-Level Tagging | A) Include in V1<br>B) Defer to P2 | **Option B (Defer to P2)**. Anime-level tagging achieves 90% of product differentiator with significantly less editor complexity. | Milestone 6 |
 | **OD-02** | Monetization Activation Date | A) Never<br>B) Launch<br>C) Post-Launch | **Option C (Post-Launch)**. Launch on Vercel Hobby; upgrade to Pro plan when affiliate links go live. | Milestone 9 |
-| **OD-03** | Community Creation Eligibility | A) Any signed-in user<br>B) Accounts >3 days old, max 2/wk | **Option B (Accounts > 3 days old)**. Neutralizes automated community spam without manual admin queues. | Milestone 4 |
+| **OD-03** | Community Creation Eligibility | A) Open creation for accounts >3 days<br>B) Invite-only<br>C) Admin-provisioned launch | **Option C (Admin-provisioned for MVP launch)**. Prevents spam and fragmented ghost communities at launch. Transition to trusted-user creation (accounts >3 days old, max 2/wk) in post-launch milestones. | Milestone 4 |
 | **OD-04** | Content Rating Policy | A) SFW strictly<br>B) Allow NSFW with age-gate | **Option A (SFW only at launch)**. Uses provider safe-for-work filters to simplify moderation and legal exposure. | Milestone 3 |
-| **OD-05** | Spoiler Scope Model | A) Post-level boolean<br>B) Post-level with optional episode field | **Option B (Post-level with optional episode field)**. Directly matches the needs of weekly episodic discussion threads. | Milestone 5 |
+| **OD-05** | Spoiler Scope Model | A) Post-level boolean<br>B) Post-level with story unit (episode/chapter) | **Option B (Post-level with optional unit field)**. Matches needs of weekly episodic threads and chapters while laying foundation for progress-aware checks. | Milestone 5 |
 | **OD-06** | Author Post Editing Window | A) Unlimited<br>B) 24 hours<br>C) Immutable | **Option B (24 hours)**. Prevents authors from rewriting historical debate contexts while permitting typo corrections. | Milestone 4 |
 | **OD-07** | Vote Roster Visibility | A) Aggregate score only<br>B) Public voter list | **Option A (Aggregate score only)**. Public voter rosters encourage vote brigading and user retaliation. | Milestone 5 |
 | **OD-08** | Username Change Frequency | A) Never<br>B) Once every 30 days | **Option B (Once every 30 days, old name held 90 days)**. Prevents identity confusion and impersonation. | Milestone 2 |
@@ -254,4 +289,3 @@ During source analysis of the two initial planning documents, four critical cont
 | **OD-13** | Database Preview Branch Strategy| A) Shared staging DB<br>B) Neon branch per PR | **Option B (Neon branch per PR)**. Fully isolates schema migrations during preview deployments. | Milestone 1 |
 | **OD-14** | Repository Visibility | A) Private permanently<br>B) Public after launch | **Option B (Private during development; public post-launch)**. Serves as portfolio artifact once launched. | Milestone 9 |
 | **OD-15** | Ranking Tie-Breaker | A) Entity UUID<br>B) Creation timestamp | **Option B (Creation timestamp)**. Resolves ties deterministically without jumping positions. | Milestone 5 |
-
