@@ -1,7 +1,7 @@
 # Anivio — Documentation Index
 
 > **Single Source of Truth (SSOT) Architecture**  
-> Status: **CONSOLIDATED BASELINE (Version 1.0)**  
+> Status: **CONSOLIDATED BASELINE (Version 1.1)**  
 > Last Updated: 12 November 2026
 
 This directory serves as the **Single Source of Truth (SSOT)** for the Anivio Anime Community Platform. The documentation is organized into **6 cohesive, domain-focused core documents** designed to eliminate cross-file fragmentation while preserving complete technical and architectural depth.
