@@ -1,28 +1,31 @@
 # Anivio — UI/UX & Design System
 
 > **Definitive Single Source of Truth for Visual & Interaction Design**  
-> Status: **LOCKED BASELINE (Version 1.0)**  
-> Last Updated: 12 November 2026
+> Status: **CONSOLIDATED BASELINE (Version 1.1)**  
+> Last Updated: 12 November 2026  
+> Document Alignment: Reconciled with `README.md` & `ARCHITECTURE.md` (Version 1.1 Consolidated Architecture Baseline)
 
-This document specifies the complete visual language, design token architecture, typography hierarchy, component specifications, page layouts, and accessibility standards for the Anivio Anime Community Platform.
+This document specifies the complete visual language, design token architecture, typography hierarchy, component specifications, page layouts, and accessibility standards for the Anivio Platform.
 
 ---
 
 ## 1. Design Direction & Philosophy
 
 ### Product Personality
-Calm, focused, content-first, and respectful. Anime platforms typically suffer from two extremes: chaotic walls of posters with unconstrained contrast, or overwhelming dark interfaces saturated with neon noise. Anivio achieves visual tranquility by keeping surfaces near-monochrome, reserving vivid accents strictly for user actions and state indicators, and letting the anime artwork serve as the sole vibrant element.
+Calm, focused, content-first, and respectful. Fandom platforms frequently suffer from two extremes: chaotic walls of posters with unconstrained contrast, or overwhelming dark interfaces saturated with neon noise. Anivio achieves visual tranquility by keeping surfaces near-monochrome, reserving vivid accents strictly for user actions and state indicators, and letting anime and fiction artwork serve as the primary vibrant element.
 
 ### Visual Principles (LOCKED)
 1. **Colour is information, not decoration**: Accent colours signal state changes, active filters, interactive buttons, or error conditions. Surfaces and typography carry everything else.
-2. **Posters are the only loud element**: Artwork provides identity; the frame remains quiet, predictable, and clean.
-3. **One card, one idea**: Each card represents a discrete entity (a post, an anime show, a comment node). Avoid compound dashboards.
-4. **Density with air**: High information density separated by a strict 4px mathematical rhythm rather than visual clutter and heavy borders.
-5. **Never lie about state**: Loading, empty, error, degraded, and permission states are visually distinct, honest, and actionable.
+2. **Artwork is the only loud element**: Posters and cover art provide visual character; the surrounding frame remains quiet, predictable, and clean.
+3. **Titles are native entities**: Anime, manga, manhwa, webtoons, and light novels are represented as structured catalog cards with clear media badges, never mere text strings.
+4. **One card, one idea**: Each card represents a discrete entity (a post, a catalog item, a comment node). Avoid compound dashboards.
+5. **Density with air**: High information density separated by a strict 4px mathematical rhythm rather than visual clutter and heavy borders.
+6. **Never lie about state**: Loading, empty, error, degraded, and permission states are visually distinct, honest, and actionable.
+7. **Spoiler safety by design**: Spoiler protection is a product-level capability. Sensitive text is withheld on the server, and reveal interactions are explicit, keyboard-accessible, and screen-reader compliant.
 
 ### Layout Philosophy
 - **Mobile-first**: The phone viewport (320px–390px) is the primary reference design, not a degraded fallback.
-- **Single-thumb ergonomics**: Primary call-to-actions, voting chevrons, and drawer navigations are placed within the bottom two-thirds of the mobile viewport.
+- **Single-thumb ergonomics**: Primary call-to-actions, voting chevrons, library buttons, and drawer navigations are placed within the bottom two-thirds of the mobile viewport.
 
 ---
 
@@ -75,7 +78,7 @@ All design tokens are defined as standard CSS custom properties in `src/styles/t
 | `--accent-magenta`| `#E879F9`| Primary call-to-action buttons, active vote indicator | *Requires dark text if filled* |
 | `--accent-violet` | `#818CF8`| Community tags, secondary pill highlights | **6.1:1** (WCAG AA) |
 | `--accent-orange` | `#FB923C`| Upvote active state, "Hot" sort icon | **8.1:1** (WCAG AAA) |
-| `--state-success`| `#34D399` | Saved confirmation, watchlist active badge | **9.2:1** (WCAG AAA) |
+| `--state-success`| `#34D399` | Saved confirmation, library active badge | **9.2:1** (WCAG AAA) |
 | `--state-warning`| `#FBBF24` | Degraded snapshot banner, quota warning | **11.4:1** (WCAG AAA) |
 | `--state-danger` | `#F87171` | Deletion buttons, error alerts, banned badge | **5.5:1** (WCAG AA) |
 
@@ -119,7 +122,7 @@ All fonts are self-hosted with `font-display: swap` to prevent FOIT (Flash of In
 
 ### Border Radius Scale
 - **Interactive Controls (Inputs, Buttons)**: `6px` (`rounded-md`)
-- **Content Cards (Posts, Anime Cards)**: `10px` (`rounded-lg`)
+- **Content Cards (Posts, Catalog Cards)**: `10px` (`rounded-lg`)
 - **Panels & Dialog Overlays**: `16px` (`rounded-xl`)
 - **Pills, Badges & Avatars**: `999px` (`rounded-full`)
 - *Nesting Rule*: A container with radius `10px` enclosing an inner control with `6px` maintains harmonious concentric curvature.
@@ -153,14 +156,14 @@ In dark interfaces, elevation is communicated through surface brightness and bor
 | **AppShell** | Server | Top Header, Main Viewport container, Footer, Mobile Navigation Sheet | Authenticated / Anonymous | Enforces max-w-7xl centered container with responsive guttering. |
 | **Header** | Server + Client | Logo wordmark, global Search trigger, Season/Top links, Auth Button / User Profile dropdown | Default, Scrolled (subtle border bottom) | Sticky header with blur backdrop (`backdrop-blur-md bg-surface-0/80`). |
 | **MobileDrawer** | Client | Sliding panel containing navigation links, joined communities, account actions | Open, Closed | Triggered by hamburger icon; full keyboard trap and Escape dismissal. |
-| **AnimeCard (Feed)** | Server | 2:3 aspect ratio poster, Title (truncated at 2 lines), Rating chip, Genre pills | Default, Hover lift (-2px), Skeleton, Degraded | Displays official cover image directly from provider CDN with explicit dimensions. |
-| **AnimeCard (Detail)** | Server | Hero banner, large poster (300px), title, metadata facts table, WatchlistControl | Default, Loading, Degraded | Never re-hosts images. Displays explicit MyAnimeList attribution. |
-| **AnimeTagPill** | Client | 20px circular thumbnail, show title, subtle cyan border | Default, Hover, Focus | Operates as a button triggering `AnimeHoverCard`; never a simple hyperlink. |
-| **AnimeHoverCard** | Client | Poster, title, score, genre tags, synopsis excerpt, one-tap WatchlistControl | Loading, Loaded, Degraded, Error | Viewport-aware positioning. Opens after 200ms intent hover or keyboard focus. |
-| **SeasonGrid** | Server | Responsive CSS grid displaying anime cards with season/year filter controls | Loading skeleton, Populated, Empty | Skeletons match exact card geometry to prevent layout shift. |
-| **SearchBox** | Client | Search input icon, text field, clear button, dropdown listbox | Default, Active typing, Loading spinner, Results | Debounces input by 300ms. Fully navigable with Arrow keys and Enter. |
-| **EpisodeList** | Server | Table of episode rows: number, title, air date, discussion thread badge | Populated, Airing today, Empty | Rows link directly to episode discussion threads. |
-| **PostCard** | Server | Community icon/name, Author, timestamp, Title, excerpt, Tag cards, VoteControl, Comment count | Default, Sticky (pinned), Removed placeholder, Filtered | Pinned posts display cyan pin icon. Removed posts preserve thread continuity. |
+| **CatalogCard (Feed)** | Server | 2:3 aspect ratio poster, Format badge (Anime/Manga/Novel), Title, Rating chip, Genre pills | Default, Hover lift (-2px), Skeleton, Degraded | Displays official cover image directly from provider CDN with explicit dimensions. |
+| **CatalogCard (Detail)** | Server | Hero banner, large poster (300px), title, format chip, metadata facts table, LibraryControl | Default, Loading, Degraded | Never re-hosts images. Displays explicit provider attribution. |
+| **CatalogTagPill** | Client | 20px circular thumbnail, format badge, title, subtle cyan border | Default, Hover, Focus | Operates as a button triggering `CatalogHoverCard`; never a simple hyperlink. |
+| **CatalogHoverCard** | Client | Poster, title, format badge, score, genre tags, synopsis excerpt, one-tap LibraryControl | Loading, Loaded, Degraded, Error | Viewport-aware positioning. Opens after 200ms intent hover or keyboard focus. |
+| **SeasonGrid** | Server | Responsive CSS grid displaying catalog cards with season/year filter controls | Loading skeleton, Populated, Empty | Skeletons match exact card geometry to prevent layout shift. |
+| **SearchBox** | Client | Search input icon, text field, format filter, clear button, dropdown listbox | Default, Active typing, Loading spinner, Results | Debounces input by 300ms. Fully navigable with Arrow keys and Enter. |
+| **UnitList** | Server | Table of units (episodes/chapters): number, title, air/pub date, discussion thread badge | Populated, Airing/Releasing today, Empty | Rows link directly to episode/chapter discussion threads. |
+| **PostCard** | Server | Community icon/name, Author, timestamp, Title, excerpt, Tag cards, VoteControl, Comment count, BookmarkButton | Default, Sticky (pinned), Removed placeholder, Filtered | Pinned posts display cyan pin icon. Removed posts preserve thread continuity. |
 | **PostEditor** | Client | Title field, Tiptap toolbar, editor canvas, Image upload strip, Spoiler toggle, Submit CTA | Pristine, Dirty, Uploading, Pending, Error | Restricts formatting to approved schema. Warns if navigating away with unsaved draft. |
 | **CommentTree** | Server | Server-assembled nested tree of comments with vertical guide lines | Loading, Populated, Empty | Emits semantic `<ul>` and `<li>` structure for accessibility. |
 | **CommentNode** | Client | Avatar, username, timestamp, content body, VoteControl, Reply trigger, Collapse toggle | Default, Collapsed, Spoiler, Deleted, Pending | Clicking indent guide collapses comment subtree. |
@@ -169,17 +172,17 @@ In dark interfaces, elevation is communicated through surface brightness and bor
 | **SortTabs** | Server | Tab group: "Hot", "New", "Best" | Active (cyan bottom indicator), Inactive | URL-driven state via search parameters (`?sort=hot`). |
 | **CommunityHeader**| Server | Community name, slug, description, member count, JoinButton, sort bar | Default, Expanded description | Mobile caps description at 2 lines with an "Expand" toggle. |
 | **JoinButton** | Client | Button toggling membership | Unjoined (cyan outline), Joined (surface-3 filled), Pending | Optimistic toggle with server rollback. |
-| **WatchlistControl**| Client | Status dropdown (Watching, Completed, Dropped, Plan), Score (1-10), Episode counter | Default, Saving, Active | Reusable across Show Detail, Hover Cards, and Episode views. |
-| **ProfileHeader** | Server | Large avatar, username, karma pill, join date, Tab switcher | Default | Public profile header. |
+| **LibraryControl** | Client | Status dropdown (Watching/Reading, Completed, On Hold, Dropped, Plan), Score (1-10), Unit counter | Default, Saving, Active | Reusable across Show Detail, Hover Cards, and Unit views. Adapts labels to medium. |
+| **ProfileHeader** | Server | Large avatar, username, karma pill, join date, FollowButton, Tab switcher | Default | Public profile header with social actions. |
 | **ImageUploader** | Client | Dropzone grid supporting up to 4 images, progress rings, alt text inputs | Idle, Dragover, Uploading, Done | Enforces 5MB limit and client-side WebP re-encoding validation. |
-| **SpoilerBlock** | Client | Obfuscated content container, "Contains Spoilers — Click to reveal" banner | Hidden (blurred), Revealed | Content is fully masked from DOM accessibility tree until toggled. |
+| **SpoilerBlock** | Client | Obfuscated container, "Contains Spoilers — Click to reveal" accessible banner | Hidden, Unlocking, Revealed | Server withholds sensitive content; client requests authorized reveal without pre-leaking in initial HTML. |
 | **ReportDialog** | Client | Modal dialog with reason radio group (Spam, Harassment, Spoilers, Other), optional note | Open, Submitting, Success | Accessible modal with focus lock and Escape dismissal. |
 | **ModerationQueue**| Server | Filter bar, list/table of flagged items, action triggers (Approve, Remove, Filter) | Default, Empty | Desktop renders as high-density table; mobile renders as action cards. |
 | **NotificationBell**| Client | Bell icon with unread count badge, popover listing notifications | Unread count > 0, No unread, Open | Badges use `--accent-magenta` with high contrast. |
 | **Skeleton** | Server | Grey pulsating block matching geometry of target element | Static / Shimmer | Declared with exact pixel widths and heights to maintain zero CLS. |
 | **EmptyState** | Server | Explanatory icon, concise message ("No posts yet in this community"), primary CTA | Default | Never states "Nothing here"; always instructs user on next actionable step. |
 | **ErrorState** | Client | Alert triangle icon, friendly explanation, Retry CTA button | Default | Provides explicit recovery action without dumping stack traces. |
-| **DegradedNotice** | Server | Warning icon, notice message with snapshot timestamp ("Showing cached anime data") | Inline banner | Informs user that upstream data provider is down without blocking reading. |
+| **DegradedNotice** | Server | Warning icon, notice message with snapshot timestamp ("Showing cached catalog data") | Inline banner | Informs user that upstream data provider is down without blocking reading. |
 | **Toast** | Client | Floating transient alert (success, warning, error) | Visible (auto-dismiss 4s), Dismissed | Rendered via accessible portal with `aria-live="polite"`. |
 | **Pagination** | Client | "Load More" button or cursor-based previous/next links | Idle, Loading | Supports keyset cursor pagination for infinite feeds. |
 
@@ -187,45 +190,49 @@ In dark interfaces, elevation is communicated through surface brightness and bor
 
 ## 6. Page-Level Specifications
 
-### 1. Global Feed (`/`)
+### 1. Global Home Feed (`/`)
 - **Layout**: Two-column layout (Main 680px, Sidebar 300px) on desktop; single-column on mobile.
-- **Above the Fold**: Sort tabs (Hot, New, Best), first 2–3 post cards, joined communities shortcuts.
-- **States**: Loading skeletons, Populated feed, Empty feed with community join recommendations, Degraded anime thumbnails.
+- **Feed Modes**: Segmented feed toggle between:
+  - **Following**: Posts from joined communities and followed users.
+  - **Discover**: Algorithmic discovery balancing trending, top, and interest-relevant content.
+- **Above the Fold**: Feed switcher, sort tabs (Hot, New, Best), first 2–3 post cards, joined communities shortcuts.
+- **States**: Loading skeletons, Populated feed, Empty feed with community join recommendations, Degraded catalog thumbnails.
 - **Mobile Behavior**: Sidebar moves into drawer navigation; sort tabs convert to a segmented control.
 
-### 2. Season Discovery (`/season`)
+### 2. Season & Catalog Discovery (`/season`, `/catalog`)
 - **Layout**: Full-width responsive poster grid (2 columns on mobile up to 6 on wide screens).
-- **Above the Fold**: Season/Year selector (e.g., "Fall 2026"), first 2 rows of poster cards.
-- **States**: Loading skeleton grid, Populated grid, Empty season notification.
+- **Above the Fold**: Format/Season/Year filter controls (Anime, Manga, Novels; e.g., "Fall 2026"), first 2 rows of poster cards.
+- **States**: Loading skeleton grid, Populated grid, Empty season/filter notification.
 
-### 3. Anime Show Detail (`/anime/[malId]`)
-- **Layout**: Two columns (Left: 300px poster + facts table; Right: Synopsis, WatchlistControl, Episode list, related community threads).
-- **Above the Fold**: Poster, primary titles, studio, score badge, WatchlistControl, initial synopsis excerpt.
+### 3. Title Detail Page (`/anime/[id]`, `/catalog/[type]/[id]`)
+- **Layout**: Two columns (Left: 300px poster + facts table; Right: Synopsis, format badge, LibraryControl, Episode/Chapter list, related community threads).
+- **Above the Fold**: Poster, primary titles, format chip, studio/author, score badge, LibraryControl, initial synopsis excerpt.
 - **Mobile Behavior**: Poster shrinks to 96px thumbnail alongside title; facts collapse into an accordion.
 
-### 4. Episode Discussion Thread (`/anime/[malId]/episodes/[n]`)
+### 4. Story Unit Discussion Thread (`/anime/[id]/episodes/[n]`)
 - **Layout**: Single reading column (720px centered).
-- **Above the Fold**: Pinned episode metadata card (show title, episode number, air date), opening post, first comment rows.
-- **Mobile Behavior**: Sticky top bar indicates "Episode [n]" when scrolling through comments.
+- **Above the Fold**: Pinned unit metadata card (show title, episode/chapter number, release date), opening discussion prompt, first comment rows.
+- **Mobile Behavior**: Sticky top bar indicates unit number when scrolling through comments.
 
 ### 5. Community Feed (`/c/[slug]`)
 - **Layout**: Main feed (680px) + Community sidebar (300px) with rules, moderator list, and "Create Post" button.
 - **Above the Fold**: Community title, member count, JoinButton, sort tabs, top pinned post.
+- **Creation Notice**: Platform-administered communities at launch; trusted-user creation deferred to post-launch.
 - **Mobile Behavior**: JoinButton pinned inside community header; sidebar collapsed behind "About Community" link.
 
 ### 6. Post Detail & Comment Tree (`/c/[slug]/p/[postId]`)
 - **Layout**: 720px reading column with optional right rail for related threads.
-- **Above the Fold**: Breadcrumb (`c/community`), author metadata, post title, post content, VoteControl, comment composer.
+- **Above the Fold**: Breadcrumb (`c/community`), author metadata, post title, post content, VoteControl, BookmarkButton, comment composer.
 - **Comment Tree Layout**: Nested indentation with left border guides. Indentation depth capped at 3 visible levels on mobile (with "Continue this thread" links).
 
 ### 7. Post Composer (`/c/[slug]/submit`)
 - **Layout**: Single column (720px centered) with live preview toggle.
-- **Above the Fold**: Target community selector, title input, Tiptap formatting toolbar, editor body.
+- **Above the Fold**: Target community selector, title input, Tiptap formatting toolbar with inline catalog tagging, spoiler toggle with optional episode/chapter unit, editor body.
 - **Mobile Behavior**: Toolbar collapses into an overflow horizontal scrolling strip.
 
 ### 8. User Profile (`/u/[username]`)
-- **Layout**: Profile header + Two-tab navigation (`Posts`, `Watchlist` — watchlist tab private to owner).
-- **Above the Fold**: Avatar, username, karma score badge, account age, post filter tabs.
+- **Layout**: Profile header + Tabbed navigation (`Posts`, `Comments`, `Library`, `Bookmarks` — bookmarks private to owner).
+- **Above the Fold**: Avatar, username, karma score badge, account age, FollowButton, post filter tabs.
 
 ### 9. Moderation Dashboard (`/mod`)
 - **Layout**: High-density desktop table / mobile card stack.
@@ -253,7 +260,7 @@ stateDiagram-v2
 1. **Loading**: Must display layout-matched skeletons declaring exact CSS width and height. No generic circular spinners in page centers.
 2. **Empty**: Features an informative icon, clear title explaining what belongs here, and an actionable button (e.g., *"No posts in c/shonen yet — be the first to start a discussion!"*).
 3. **Error**: States specifically what went wrong without technical jargon, providing an explicit "Retry" button.
-4. **Degraded**: When external provider APIs (Tenrai/AniList) are unreachable, the UI renders the last known cached data accompanied by a prominent warning badge: *"⚠️ Showing cached anime information from [X hours ago]. External metadata provider is temporarily unreachable."*
+4. **Degraded**: When external provider APIs (Tenrai/AniList) are unreachable, the UI renders the last known cached data accompanied by a prominent warning badge: *"⚠️ Showing cached catalog information from [X hours ago]. External metadata provider is temporarily unreachable."*
 5. **Permission**: Displayed when an unauthenticated visitor attempts an authenticated action (voting, posting, commenting). Renders an inline modal or redirect preserving the return URL.
 
 ---
@@ -264,10 +271,10 @@ Before any UI pull request is merged, it must satisfy this verification checklis
 
 - [ ] **Focus Rings**: All interactive controls display an explicit `--focus-ring: #22D3EE 2px solid` with `outline-offset: 2px`. Focus outline is never suppressed via `outline: none` without a custom replacement.
 - [ ] **Contrast Validation**: All body and metadata text pairs verified with a contrast checker to meet WCAG 2.1 AA (4.5:1 for normal, 3:1 for large).
-- [ ] **Touch Target Size**: All touch targets (vote arrows, mobile navigation triggers, close buttons) measure at least **44px × 44px**.
+- [ ] **Touch Target Size**: All touch targets (vote arrows, mobile navigation triggers, close buttons, library buttons) measure at least **44px × 44px**.
 - [ ] **Keyboard Trapping**: Modals, drawers, and dialogs trap keyboard focus and dismiss upon pressing `Escape`.
 - [ ] **Semantic Structure**: Every page features exactly one `<h1>` tag with logically nested `<h2>` and `<h3>` tags without skipping levels.
-- [ ] **Screen Reader Announcements**: Dynamic mutations (upvoting, adding to watchlist, form errors) announce updates via `aria-live="polite"` regions.
-- [ ] **Spoiler Protection in A11y Tree**: Spoiler text is withheld from the accessibility DOM tree until the reveal control is activated.
+- [ ] **Screen Reader Announcements**: Dynamic mutations (upvoting, adding to library, following users, form errors) announce updates via `aria-live="polite"` regions.
+- [ ] **Server-Enforced Spoiler A11y**: Spoiler text is withheld from the accessibility DOM tree until the reveal control is activated.
+- [ ] **Respect Motion Preferences**: All animations and transitions evaluate `@media (prefers-reduced-motion: reduce)` to disable non-essential motion.
 - [ ] **Zoom Testing**: Entire page layout functions cleanly at 200% browser zoom without text clipping or horizontal scrolling.
-
